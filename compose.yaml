@@ -1,0 +1,33 @@
+# solo-runner: copy this file and .env.example to the host, fill in .env, then
+#   docker compose up -d
+# Read the "Security" section of README.md before enabling Docker for jobs.
+services:
+  solo-runner:
+    image: ghcr.io/sebiweise/solo-runner:0.1
+    restart: unless-stopped
+    # A stop kills a running job; this is only enough to remove idle runners.
+    stop_grace_period: 30s
+    env_file: .env
+    volumes:
+      # Node, Python, ... installed by actions/setup-* survive between jobs.
+      - toolcache:/opt/hostedtoolcache
+
+      # --- Jobs that use Docker (docker build, docker run, services:) -----
+      # Uncomment both lines and `group_add` below. The socket makes every
+      # job root on this host: run solo-runner on a machine of its own.
+      # - /var/run/docker.sock:/var/run/docker.sock
+      # The host's daemon resolves `docker run -v "$PWD:..."` on the HOST,
+      # so the work directory must have the same path on both sides.
+      # Create it once: sudo install -d -o 1001 -g 1001 /srv/solo-runner/work
+      # - /srv/solo-runner/work:/srv/solo-runner/work
+    # group_add:
+    #   # The host's docker group: getent group docker | cut -d: -f3
+    #   - "${DOCKER_GID:-999}"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  toolcache:

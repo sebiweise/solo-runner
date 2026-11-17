@@ -1,0 +1,46 @@
+name: Auto release
+
+# GitHub stops handing jobs to runners that are too old, so every merged bump
+# of the runner base image is published right away as the next patch version.
+on:
+  push:
+    branches: [main]
+    paths: [Dockerfile]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: next
+        run: |
+          before=$(git show HEAD^:Dockerfile | grep -m1 '^FROM ' || true)
+          after=$(grep -m1 '^FROM ' Dockerfile)
+          if [ "$before" = "$after" ]; then
+            echo "base image unchanged, nothing to release"; exit 0
+          fi
+          last=$(git tag --list 'v*.*.*' --sort=-v:refname | head -1)
+          if [ -z "$last" ]; then
+            echo "no release yet, nothing to bump"; exit 0
+          fi
+          IFS=. read -r major minor patch <<< "${last#v}"
+          echo "version=${major}.${minor}.$((patch + 1))" >> "$GITHUB_OUTPUT"
+          echo "$before -> $after: releasing ${major}.${minor}.$((patch + 1))"
+
+  release:
+    needs: check
+    if: needs.check.outputs.version != ''
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+    uses: ./.github/workflows/release.yml
+    with:
+      version: ${{ needs.check.outputs.version }}

@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - run: pip install ruff==0.17.5
+      - run: ruff check .
+      - run: ruff format --check .
+      - uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
+        with:
+          dockerfile: Dockerfile
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # 3.10 is the oldest supported; 3.12 is what the image ships.
+        python: ["3.10", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install pytest
+      - run: pytest -q
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          tags: solo-runner:ci
+          build-args: VERSION=ci
+      - name: Smoke test
+        run: |
+          # Without a token it must refuse to start, with a clear message.
+          set +e
+          out=$(docker run --rm solo-runner:ci 2>&1); code=$?
+          set -e
+          echo "$out"
+          [ "$code" -eq 2 ] && echo "$out" | grep -q "GITHUB_TOKEN"
+          # The runner and the dispatcher are where the entrypoint expects them.
+          docker run --rm --entrypoint sh solo-runner:ci -c \
+            'test -x /home/runner/run.sh && python3 -c "import solo_runner.dispatcher" && id -u'
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: solo-runner:ci
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"

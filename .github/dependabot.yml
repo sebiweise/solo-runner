@@ -1,0 +1,19 @@
+version: 2
+updates:
+  # The runner base image. A merged bump is released as a new patch version
+  # by workflows/auto-release.yml, so check daily.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: daily
+    commit-message:
+      prefix: "deps(runner)"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps(ci)"
