@@ -6,6 +6,12 @@ releases.
 
 ## [Unreleased]
 
+### Added
+
+- The docker compose plugin in the image is kept current: a daily workflow opens
+  a pull request for each new compose release, and a merged bump is released as
+  the next patch version, like runner base image bumps.
+
 ## [0.1.0] - 2026-11-18
 
 First release, extracted from a homelab setup that ran one shared runner for
