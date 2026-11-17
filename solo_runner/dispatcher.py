@@ -13,6 +13,7 @@ come back as 304 thanks to ETags, and GitHub does not count those against the
 rate limit.
 """
 
+import calendar
 import contextlib
 import fnmatch
 import os
@@ -28,6 +29,7 @@ from concurrent.futures import ThreadPoolExecutor
 from .config import Config
 from .github import AppAuth, GitHub, GitHubError, TokenAuth
 from .log import log, passthrough
+from .metrics import Metrics
 
 HEARTBEAT_EVERY = 60
 _RUNNER_STATE = {".runner", ".credentials", ".credentials_rsaparams"}
@@ -81,6 +83,15 @@ def filter_repos(repos, config: Config, warn=log) -> list:
             continue
         result.append(name)
     return sorted(set(result))
+
+
+def queued_seconds(created_at: str, now: float) -> float | None:
+    """Seconds since GitHub's created_at ("2026-11-17T10:00:00Z"), None if unreadable."""
+    try:
+        created = calendar.timegm(time.strptime(created_at, "%Y-%m-%dT%H:%M:%SZ"))
+    except (TypeError, ValueError):
+        return None
+    return max(0.0, now - created)
 
 
 def clear_dir(path: str) -> None:
@@ -143,15 +154,17 @@ class Slot:
 
 
 class Dispatcher:
-    def __init__(self, config: Config, github: GitHub = None):
+    def __init__(self, config: Config, github: GitHub = None, metrics: Metrics = None):
         self.config = config
+        self.metrics = metrics or Metrics()
+        self.metrics.collect = self._gauges
         if github is None:
             auth = (
                 AppAuth(config.app_id, config.app_private_key, config.app_installation_id)
                 if config.app_id
                 else TokenAuth(config.token)
             )
-            github = GitHub(auth, config.api_url)
+            github = GitHub(auth, config.api_url, metrics=self.metrics)
         self.github = github
         self.repos = []
         self._next_discovery = 0.0
@@ -162,6 +175,7 @@ class Dispatcher:
         # for the rest of POLL_INTERVAL.
         self._wake = threading.Event()
         self._last_beat = 0.0
+        self._queued = {}  # repo -> matching queued jobs in the last scan
 
     # --- repos ------------------------------------------------------------
 
@@ -221,6 +235,12 @@ class Dispatcher:
                     ok = False
                 else:
                     jobs.extend(found)
+        queued = {}
+        for job in jobs:
+            queued[job["repo"]] = queued.get(job["repo"], 0) + 1
+        self._queued = queued
+        if ok:
+            self.metrics.set("solo_runner_last_scan_timestamp_seconds", time.time())
         return jobs, ok
 
     # --- slots ------------------------------------------------------------
@@ -255,6 +275,7 @@ class Dispatcher:
         try:
             self.run_runner(slot)
         except Exception as err:  # noqa: BLE001 - a slot must always be freed
+            self.metrics.inc("solo_runner_runner_errors_total", repo=slot.repo)
             log(f"{slot.repo}: runner {slot.name or '(not registered)'} failed: {err}", slot=slot.index)
         finally:
             with self._lock:
@@ -275,6 +296,7 @@ class Dispatcher:
             # Docker daemon resolves a job's `docker run -v "$PWD:..."` there.
             jit = self.github.jit_config(slot.repo, slot.name, config.runner_labels, work)
             slot.runner_id = jit["runner"]["id"]
+            self.metrics.inc("solo_runner_runners_started_total", repo=slot.repo)
             log(f"{slot.repo}: started runner {slot.name}", slot=slot.index)
 
             env = dict(os.environ)
@@ -292,8 +314,9 @@ class Dispatcher:
             def pump():
                 for line in slot.process.stdout:
                     passthrough(line, slot=slot.index)
-                    if "Running job:" in line:
+                    if "Running job:" in line and not slot.got_job.is_set():
                         slot.got_job.set()
+                        self.metrics.inc("solo_runner_jobs_started_total", repo=slot.repo)
 
             reader = threading.Thread(target=pump, daemon=True)
             reader.start()
@@ -305,6 +328,7 @@ class Dispatcher:
                         f"{slot.repo}: no job after {config.idle_timeout}s, stopping runner {slot.name}",
                         slot=slot.index,
                     )
+                    self.metrics.inc("solo_runner_runners_idle_total", repo=slot.repo)
                     slot.process.terminate()
                     break
                 if self._stopping.wait(1):
@@ -315,6 +339,8 @@ class Dispatcher:
                 slot.process.kill()
                 slot.process.wait()
             reader.join(timeout=5)
+            if slot.got_job.is_set():
+                self.metrics.inc("solo_runner_jobs_finished_total", repo=slot.repo)
         finally:
             # A runner that ran its job is gone already; one that never got a
             # job would stay listed as offline until GitHub removes it a day later.
@@ -327,6 +353,21 @@ class Dispatcher:
             shutil.rmtree(runner_copy, ignore_errors=True)
             if slot.runner_id is not None:
                 log(f"{slot.repo}: runner {slot.name} finished", slot=slot.index)
+
+    # --- metrics ----------------------------------------------------------
+
+    def _gauges(self):
+        """Gauges read at scrape time: (name, labels, value)."""
+        busy = self.active()
+        result = [
+            ("solo_runner_slots_max", {}, self.config.max_concurrent),
+            ("solo_runner_slots_busy", {}, busy),
+            ("solo_runner_slots_free", {}, max(0, self.config.max_concurrent - busy)),
+            ("solo_runner_repos_served", {}, len(self.repos)),
+        ]
+        queued = self._queued
+        result.extend(("solo_runner_jobs_queued", {"repo": repo}, queued.get(repo, 0)) for repo in self.repos)
+        return result
 
     # --- cleanup ----------------------------------------------------------
 
@@ -367,7 +408,11 @@ class Dispatcher:
         if ok:
             self.heartbeat()
         picked = pick_jobs(jobs, self.idle_per_repo(), free)
+        now = time.time()
         for job in picked:
+            waited = queued_seconds(job.get("created_at"), now)
+            if waited is not None:
+                self.metrics.observe("solo_runner_job_wait_seconds", waited)
             waiting = len(jobs) - len(picked)
             more = f", {waiting} more waiting" if waiting > 0 else ""
             log(f"{job['repo']}: next job '{job['run_name']} / {job['name']}' (queued {job['created_at']}{more})")

@@ -5,6 +5,7 @@ import sys
 from .config import ConfigError, load
 from .dispatcher import Dispatcher
 from .log import log, setup
+from .metrics import serve
 
 
 def main() -> int:
@@ -15,6 +16,13 @@ def main() -> int:
         return 2
     setup(config.log_format)
     dispatcher = Dispatcher(config)
+    if config.metrics_port:
+        try:
+            serve(dispatcher.metrics, config.metrics_addr, config.metrics_port)
+        except OSError as err:
+            print(f"solo-runner: metrics on {config.metrics_addr}:{config.metrics_port}: {err}", file=sys.stderr)
+            return 2
+        log(f"metrics on http://{config.metrics_addr}:{config.metrics_port}/metrics")
     try:
         dispatcher.run()
     except KeyboardInterrupt:  # pragma: no cover - signal handler normally catches it

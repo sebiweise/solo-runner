@@ -67,6 +67,14 @@ you trust before you start.
 - **Least privilege.** A fine-grained PAT limited to the repos you want to
   serve, with *Administration: Read and write* and *Actions: Read*, and an
   expiry date.
+- **Metrics are readable by every job.** With `METRICS_PORT` set, the
+  dispatcher answers `GET /metrics` without authentication. Jobs run in the same
+  container, so any job can read it on `localhost`, and so can anything that
+  reaches the published port. It contains the names of all served repos, how
+  many jobs each one ran and is waiting for, and API error counts; no tokens,
+  job names or logs. Publish the port on `127.0.0.1` or a private network only
+  (`127.0.0.1:9464:9464`), and leave `METRICS_PORT` unset if one repo must not
+  learn the names of the others.
 - **Shared tool cache.** The optional `toolcache` volume is shared between
   repos. Leave it out if one repo must not see what another one installed.
 
@@ -121,6 +129,8 @@ with the `_FILE` suffix (`GITHUB_TOKEN_FILE`, `GITHUB_APP_PRIVATE_KEY_FILE`).
 | `IDLE_TIMEOUT` | `300` | Seconds a runner waits for its job before it is removed. |
 | `DISCOVERY_INTERVAL` | `600` | Seconds between two reads of the repo list. |
 | `HEARTBEAT_URL` | – | URL fetched after each successful scan, at most once a minute. |
+| `METRICS_PORT` | – | Serve Prometheus metrics on this port at `/metrics`. Off when unset. See [Monitoring](#monitoring). |
+| `METRICS_ADDR` | `0.0.0.0` | Address the metrics endpoint listens on inside the container. |
 | `LOG_FORMAT` | `text` | `text` or `json` (one object per line, runner output included). |
 | `RUNNER_NAME_PREFIX` | `solo-runner` | Runner names are `<prefix>-<repo>-<time>-<slot>`. Give each host its own prefix if several run against the same repos. |
 | `WORK_DIR` | `/srv/solo-runner/work` | Job work directories, one per slot, emptied after every job. |
@@ -193,6 +203,31 @@ Disk fills up with images. A daily cron job helps:
   Uptime Kuma push monitor, ...) with a 5-minute period and set
   `HEARTBEAT_URL`. It goes quiet when the container is down or hung, or when
   GitHub rejects the token.
+- **Prometheus**: set `METRICS_PORT=9464`, publish the port (see the comment
+  in `compose.yaml`) and scrape `http://<host>:9464/metrics`. Read the
+  [Security](#security) note first.
+
+| Metric | Type | Meaning |
+| --- | --- | --- |
+| `solo_runner_slots_max`, `_busy`, `_free` | gauge | `MAX_CONCURRENT`, runners that exist now, slots left. |
+| `solo_runner_repos_served` | gauge | Repos being polled. |
+| `solo_runner_jobs_queued{repo}` | gauge | Matching queued jobs in the last scan. While all slots are busy, no scan runs and the value is not updated. |
+| `solo_runner_last_scan_timestamp_seconds` | gauge | Last scan in which every repo answered. |
+| `solo_runner_runners_started_total{repo}` | counter | Just-in-time runners registered. |
+| `solo_runner_jobs_started_total{repo}` | counter | Jobs a runner picked up. |
+| `solo_runner_jobs_finished_total{repo}` | counter | Jobs whose runner exited after running them (success or failure of the job itself is not known to solo-runner). |
+| `solo_runner_runners_idle_total{repo}` | counter | Runners removed after `IDLE_TIMEOUT` without a job. |
+| `solo_runner_runner_errors_total{repo}` | counter | Runners that failed to register or start. |
+| `solo_runner_job_wait_seconds` | histogram | Time from a job being queued to a runner being started for it. |
+| `solo_runner_github_requests_total{status}` | counter | API requests by HTTP status (`304` = cached, free) or `network`. |
+| `solo_runner_github_errors_total{status}` | counter | Failed API requests (status 400 and above, or `network`). |
+| `solo_runner_github_rate_limit_remaining` | gauge | `X-RateLimit-Remaining` of the last answer. |
+| `solo_runner_info{version}` | gauge | Always 1. |
+
+Example alerts: `time() - solo_runner_last_scan_timestamp_seconds > 600`
+(dispatcher stuck or token rejected), `rate(solo_runner_github_errors_total[15m]) > 0`,
+`histogram_quantile(0.9, rate(solo_runner_job_wait_seconds_bucket[1h])) > 1800`
+(jobs wait long: raise `MAX_CONCURRENT`).
 
 ## Bring your own runner image
 
