@@ -157,8 +157,9 @@ session.
 
 ## Jobs that use Docker
 
-Many workflows run `docker build`, `docker run` or use `services:`. The image
-contains the Docker CLI and buildx; to use the host's daemon:
+Many workflows run `docker build`, `docker run`, `docker compose` or use
+`services:`. The image contains the Docker CLI, buildx and the compose plugin;
+to use the host's daemon:
 
 ```yaml
     volumes:
@@ -196,7 +197,10 @@ Disk fills up with images. A daily cron job helps:
 ## Bring your own runner image
 
 The bundled image is the official `ghcr.io/actions/actions-runner` plus
-Python. If your jobs need more preinstalled tools, build on another runner
+Python and the Docker compose plugin. Like that image, it has far fewer tools
+than GitHub's hosted runners: install what a job needs in the workflow
+(`sudo apt-get install -y ...` or a `setup-*` action), so it keeps working on
+`ubuntu-latest` too. If your jobs need more preinstalled tools, build on another runner
 image and copy the dispatcher in:
 
 ```dockerfile
