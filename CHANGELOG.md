@@ -6,6 +6,13 @@ releases.
 
 ## [Unreleased]
 
+### Added
+
+- Optional Prometheus metrics on `METRICS_PORT` (`/metrics`): free and busy
+  slots, runners and jobs started and finished per repo, idle and failed
+  runners, job wait time, queued jobs, GitHub API requests, errors and rate
+  limit.
+
 ## [0.1.0] - 2026-11-18
 
 First release, extracted from a homelab setup that ran one shared runner for

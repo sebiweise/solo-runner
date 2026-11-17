@@ -67,8 +67,9 @@ class AppAuth:
 
 
 class GitHub:
-    def __init__(self, auth, api_url: str = "https://api.github.com", opener=None):
+    def __init__(self, auth, api_url: str = "https://api.github.com", opener=None, metrics=None):
         self.auth = auth
+        self.metrics = metrics
         self.api_url = api_url.rstrip("/")
         self._open = opener or urllib.request.urlopen
         self._etags = {}
@@ -94,15 +95,32 @@ class GitHub:
                 raw = resp.read()
                 result = json.loads(raw) if raw else None
                 etag = resp.headers.get("ETag") if resp.headers else None
+                self._count(getattr(resp, "status", 200), resp.headers)
                 if cache and etag:
                     with self._etag_lock:
                         self._etags[url] = (etag, result)
                 return result
         except urllib.error.HTTPError as err:
+            self._count(err.code, err.headers)
             if err.code == 304 and cached:
                 return cached[1]
             detail = err.read().decode(errors="replace")[:300]
             raise GitHubError(f"{method} {path}: HTTP {err.code} {detail}", err.code) from None
+        except OSError:  # URLError, timeouts, resets: no answer at all
+            if self.metrics:
+                self.metrics.inc("solo_runner_github_requests_total", status="network")
+                self.metrics.inc("solo_runner_github_errors_total", status="network")
+            raise
+
+    def _count(self, status, headers) -> None:
+        if not self.metrics:
+            return
+        self.metrics.inc("solo_runner_github_requests_total", status=str(status))
+        if status >= 400:
+            self.metrics.inc("solo_runner_github_errors_total", status=str(status))
+        remaining = headers.get("X-RateLimit-Remaining") if headers else None
+        if remaining is not None and str(remaining).isdigit():
+            self.metrics.set("solo_runner_github_rate_limit_remaining", int(remaining))
 
     def paginate(self, path: str, key=None, limit: int = 1000):
         """All items of a list endpoint (per_page=100), up to limit."""

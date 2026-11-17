@@ -55,3 +55,11 @@ def test_invalid(env, message):
 def test_default_label_not_duplicated():
     config = load({"GITHUB_TOKEN": "a", "LABELS": "self-hosted,homelab"})
     assert config.runner_labels.count("self-hosted") == 1
+
+
+def test_metrics_port():
+    assert load({"GITHUB_TOKEN": "t"}).metrics_port == 0
+    config = load({"GITHUB_TOKEN": "t", "METRICS_PORT": "9464", "METRICS_ADDR": "127.0.0.1"})
+    assert (config.metrics_port, config.metrics_addr) == (9464, "127.0.0.1")
+    with pytest.raises(ConfigError):
+        load({"GITHUB_TOKEN": "t", "METRICS_PORT": "70000"})

@@ -201,3 +201,53 @@ def test_explicit_repo_list_still_refuses_public_repos(tmp_path):
     dispatcher = Dispatcher(make_config(tmp_path, REPOS="me/a me/public"), github=gh)
     dispatcher.refresh_repos(force=True)
     assert dispatcher.repos == ["me/a"]
+
+
+def test_metrics_follow_a_job(tmp_path):
+    make_runner(tmp_path, 'echo "Running job: build"\n')
+    gh = FakeGitHub(
+        {
+            "me/a": [
+                {
+                    "id": 1,
+                    "name": "j",
+                    "labels": ["self-hosted"],
+                    "created_at": "2026-11-17T10:00:00Z",
+                    "run_name": "CI",
+                }
+            ]
+        }
+    )
+    dispatcher = Dispatcher(make_config(tmp_path, MAX_CONCURRENT="3"), github=gh)
+    dispatcher.refresh_repos(force=True)
+    dispatcher.tick()
+    assert wait_until(lambda: dispatcher.active() == 0)
+    metrics = dispatcher.metrics
+    for name in ("runners_started", "jobs_started", "jobs_finished"):
+        assert metrics.value(f"solo_runner_{name}_total", repo="me/a") == 1
+    text = metrics.render()
+    assert "solo_runner_job_wait_seconds_count 1" in text
+    assert 'solo_runner_jobs_queued{repo="me/a"} 1' in text
+    assert "solo_runner_slots_max 3" in text and "solo_runner_slots_free 3" in text
+    assert "solo_runner_last_scan_timestamp_seconds " in text
+
+
+def test_metrics_count_idle_runners_and_failures(tmp_path):
+    make_runner(tmp_path, "sleep 30\n")
+    config = make_config(tmp_path)
+    config.idle_timeout = 1
+    gh = FakeGitHub({"me/a": [{"id": 1, "name": "j", "labels": ["self-hosted"], "created_at": "1", "run_name": "CI"}]})
+    dispatcher = Dispatcher(config, github=gh)
+    dispatcher.refresh_repos(force=True)
+    dispatcher.tick()
+    assert wait_until(lambda: dispatcher.active() == 0, timeout=15)
+    assert dispatcher.metrics.value("solo_runner_runners_idle_total", repo="me/a") == 1
+    assert dispatcher.metrics.value("solo_runner_jobs_finished_total", repo="me/a") == 0
+
+    def broken(*args):
+        raise OSError("network down")
+
+    gh.jit_config = broken
+    dispatcher.tick()
+    assert wait_until(lambda: dispatcher.active() == 0)
+    assert dispatcher.metrics.value("solo_runner_runner_errors_total", repo="me/a") == 1

@@ -23,6 +23,10 @@ services:
     # group_add:
     #   # The host's docker group: getent group docker | cut -d: -f3
     #   - "${DOCKER_GID:-999}"
+    # --- Prometheus metrics (METRICS_PORT=9464 in .env) ---------------------
+    # Publish on localhost or a private address only; see README, "Security".
+    # ports:
+    #   - "127.0.0.1:9464:9464"
     logging:
       driver: json-file
       options:
