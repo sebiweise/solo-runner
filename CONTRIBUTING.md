@@ -20,6 +20,6 @@ Issues and pull requests are welcome.
 ## Releases
 
 Maintainers tag `vX.Y.Z` on `main`; the release workflow builds and signs the
-image. Runner base image bumps from Dependabot are released automatically as
-the next patch version. Add a line to `CHANGELOG.md` with every user-visible
-change.
+image. Runner base image bumps from Dependabot and docker compose plugin bumps
+from `update-compose.yml` are released automatically as the next patch
+version. Add a line to `CHANGELOG.md` with every user-visible change.
