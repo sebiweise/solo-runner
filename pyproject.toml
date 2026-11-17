@@ -1,0 +1,27 @@
+[project]
+name = "solo-runner"
+dynamic = ["version"]
+description = "One container that runs ephemeral self-hosted GitHub Actions runners for all repos of a personal account"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+solo-runner = "solo_runner.__main__:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "solo_runner.__version__" }
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "UP", "I", "SIM", "BLE", "ARG"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["ARG"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
