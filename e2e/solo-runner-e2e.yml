@@ -1,0 +1,50 @@
+# The workflow the end-to-end test runs (.github/workflows/e2e.yml).
+#
+# Copy this file to .github/workflows/solo-runner-e2e.yml on the default
+# branch of the private test repo (default: <owner>/solo-runner-e2e). The test
+# dispatches it with a label that only the solo-runner container under test
+# has, so no other runner takes the jobs.
+#
+# Two jobs on one slot (MAX_CONCURRENT=1): each must get a runner of its own
+# and an empty workspace.
+name: solo-runner e2e
+run-name: solo-runner e2e ${{ inputs.nonce }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      label:
+        description: Runner label of the solo-runner under test
+        required: true
+      nonce:
+        description: Identifies the run for the test
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  job:
+    strategy:
+      matrix:
+        n: [1, 2]
+    runs-on: [self-hosted, "${{ inputs.label }}"]
+    timeout-minutes: 5
+    steps:
+      - name: Fresh workspace
+        run: |
+          ls -lA "$GITHUB_WORKSPACE"
+          test -z "$(ls -A "$GITHUB_WORKSPACE")"
+          echo "job ${{ matrix.n }}" > "$GITHUB_WORKSPACE/marker"
+      - name: Runs as the unprivileged runner user
+        run: |
+          id
+          test "$(id -u)" != 0
+      - name: The dispatcher's credentials are not in the job
+        run: |
+          for name in GITHUB_TOKEN GITHUB_TOKEN_FILE ACCESS_TOKEN GITHUB_APP_PRIVATE_KEY GITHUB_APP_PRIVATE_KEY_FILE; do
+            if [ -n "${!name:-}" ]; then echo "::error::$name is set in the job"; exit 1; fi
+          done
+      # A JavaScript action: the runner's bundled Node works.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: test -f .github/workflows/solo-runner-e2e.yml

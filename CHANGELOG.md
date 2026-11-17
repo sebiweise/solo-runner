@@ -6,6 +6,11 @@ releases.
 
 ## [Unreleased]
 
+### Added
+
+- End-to-end test workflow: runs real jobs through the image against a private
+  test repo on pull requests, weekly and on demand (`.github/workflows/e2e.yml`).
+
 ## [0.1.0] - 2026-11-18
 
 First release, extracted from a homelab setup that ran one shared runner for
