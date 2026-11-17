@@ -32,7 +32,10 @@ RUN apt-get update \
        "https://github.com/docker/compose/releases/download/v${COMPOSE_VERSION}/docker-compose-linux-${arch}" \
     && echo "${sum}  /usr/local/lib/docker/cli-plugins/docker-compose" | sha256sum -c - \
     && chmod 755 /usr/local/lib/docker/cli-plugins/docker-compose \
-    && install -d -o 1001 -g 1001 /opt/hostedtoolcache /srv/solo-runner/work
+    && install -d -o 1001 -g 1001 /opt/hostedtoolcache /srv/solo-runner/work \
+    # The Kubernetes container hooks are for actions-runner-controller only;
+    # without them the image carries fewer Node packages to keep patched.
+    && rm -rf /home/runner/k8s /home/runner/k8s-novolume
 
 COPY solo_runner /opt/solo-runner/solo_runner
 
