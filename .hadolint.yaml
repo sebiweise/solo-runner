@@ -1,0 +1,4 @@
+ignored:
+  # Pinning apt versions breaks the build whenever Ubuntu publishes a security
+  # update; the base image pins the distribution and is bumped by Dependabot.
+  - DL3008
