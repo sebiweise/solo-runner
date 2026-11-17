@@ -19,7 +19,9 @@ Issues and pull requests are welcome.
 
 ## Releases
 
-Maintainers tag `vX.Y.Z` on `main`; the release workflow builds and signs the
-image. Runner base image bumps from Dependabot are released automatically as
+Maintainers run the *Release* workflow (`release.yml`) from the Actions tab
+with the version (`X.Y.Z`, no leading `v`). It builds and signs the image and
+creates the GitHub release together with the tag `vX.Y.Z`; nobody pushes tags
+by hand. Runner base image bumps from Dependabot are released automatically as
 the next patch version. Add a line to `CHANGELOG.md` with every user-visible
 change.
