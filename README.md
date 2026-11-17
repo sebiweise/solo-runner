@@ -249,6 +249,9 @@ ruff check . && ruff format --check .
 docker build -t solo-runner:dev .
 ```
 
+An end-to-end test runs real jobs through the image against a private test
+repo; see [CONTRIBUTING.md](CONTRIBUTING.md#end-to-end-test).
+
 See [CONTRIBUTING.md](CONTRIBUTING.md). Releases: [CHANGELOG.md](CHANGELOG.md).
 
 ## License
