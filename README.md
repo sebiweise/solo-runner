@@ -45,6 +45,7 @@ longest, never more than `MAX_CONCURRENT` at a time.
 - [Security](#security) (read this first)
 - [Quick start](#quick-start)
 - [Configuration](#configuration)
+- [Settings per repo](#settings-per-repo)
 - [PAT or GitHub App](#pat-or-github-app)
 - [Jobs that use Docker](#jobs-that-use-docker)
 - [Monitoring](#monitoring)
@@ -76,6 +77,11 @@ you trust before you start.
   expiry date.
 - **Shared tool cache.** The optional `toolcache` volume is shared between
   repos. Leave it out if one repo must not see what another one installed.
+- **The config file is readable by jobs.** A `CONFIG_FILE` mounted into the
+  container can be read by every job, like any other file there. It holds
+  repo names, labels and limits only; never put a token or other secret in
+  it. Mount it read-only (`:ro`), so a job cannot change the settings of other
+  repos for the next start.
 
 Report vulnerabilities as described in [SECURITY.md](SECURITY.md).
 
@@ -133,11 +139,55 @@ with the `_FILE` suffix (`GITHUB_TOKEN_FILE`, `GITHUB_APP_PRIVATE_KEY_FILE`).
 | `WORK_DIR` | `/srv/solo-runner/work` | Job work directories, one per slot, emptied after every job. |
 | `RUNNER_DIR` | `/home/runner` | Where the runner installation lives (for custom images). |
 | `GITHUB_API_URL` | `https://api.github.com` | For GitHub Enterprise Server. |
+| `CONFIG_FILE` | – | Optional YAML file with [settings per repo](#settings-per-repo). |
 
 **Rate limit.** Each scan costs about two requests per repo, but unchanged
 answers come back as `304 Not Modified`, which GitHub does not count. Ten repos
 at `POLL_INTERVAL=30` stay far below the 5,000 requests per hour of a PAT.
 With many repos, raise `POLL_INTERVAL` or exclude repos without workflows.
+
+## Settings per repo
+
+The environment variables apply to every repo. To give single repos their own
+labels or their own limit, write a `config.yaml` and point `CONFIG_FILE` at it:
+
+```yaml
+# config.yaml: only what differs from the environment
+repos:
+  me/heavy-build:          # owner/repo
+    max_concurrent: 1      # never more than one job of this repo at a time
+    labels: [solo, bigdisk]
+  "*-sandbox":             # glob, matched against owner/repo and repo
+    labels: [sandbox]      # quote patterns that start with *
+```
+
+```yaml
+# compose.yaml
+    environment:
+      CONFIG_FILE: /etc/solo-runner/config.yaml
+    volumes:
+      - ./config.yaml:/etc/solo-runner/config.yaml:ro
+```
+
+- **`labels`** replaces `LABELS` for the repo: the runner registers with
+  `self-hosted`, `linux`, the architecture and these labels, and takes only jobs
+  that ask for all of them.
+- **`max_concurrent`** limits how many runners the repo gets at once. The
+  global `MAX_CONCURRENT` still applies on top, so a value above it has no
+  effect. While a repo is at its limit, its jobs wait and younger jobs of other
+  repos go first.
+- A setting left out keeps the value from the environment. Which repos are
+  served is still decided by `REPOS` and `REPO_EXCLUDE` alone; an entry that
+  matches no served repo is logged.
+- Keys are compared without case. If several entries match a repo, the first
+  one in the file wins. Unknown keys are an error, so a typo stops the start
+  instead of being ignored.
+- The file is read once at start: `docker compose restart` after a change.
+
+The dispatcher has no dependencies besides Python, so it reads a strict subset
+of YAML: mappings, lists (`[a, b]` or `- a` lines), quoted and plain values and
+comments. Anchors, multi-line strings and the like are refused with a line
+number; what it accepts means the same in any YAML parser.
 
 ## PAT or GitHub App
 
@@ -235,7 +285,8 @@ It needs `python3` (3.10 or later) and the runner's `run.sh` in `RUNNER_DIR`.
 - **Job stays "Queued"**: the job's `runs-on` asks for a label solo-runner does
   not have, or misses one of `LABELS`; the
   repo is public, archived, excluded or not visible to the token (see the
-  `serving N repos` line); or all slots are busy.
+  `serving N repos` line); all slots are busy; or the repo is at its
+  `max_concurrent` from the config file, or has its own `labels` there.
 - **`HTTP 401` / `403`**: the token expired or lacks a permission. `403` with
   "rate limit": raise `POLL_INTERVAL`.
 - **`no job after 300s, stopping runner`**: the job was cancelled, or another
