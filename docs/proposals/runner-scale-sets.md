@@ -58,16 +58,33 @@ is requeued, up to three times.
 
 ## How it would map onto a personal account
 
-```
-            GitHub (Actions service)                 solo-runner
- ┌──────────────────────────────────────┐     ┌──────────────────────────────┐
- │ repo-a: scale set "solo" ◄─ session ─┼─────┤ listener thread repo-a  ┐    │
- │ repo-b: scale set "solo" ◄─ session ─┼─────┤ listener thread repo-b  ├─►  │
- │ repo-c: scale set "solo" ◄─ session ─┼─────┤ listener thread repo-c  ┘    │
- └──────────────────────────────────────┘     │   global queue (oldest first)│
-                                              │   MAX_CONCURRENT slots       │
-                                              │   run_runner() as today      │
-                                              └──────────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph github["GitHub (Actions service)"]
+        setA["repo-a<br>scale set #quot;solo#quot;"]
+        setB["repo-b<br>scale set #quot;solo#quot;"]
+        setC["repo-c<br>scale set #quot;solo#quot;"]
+    end
+    subgraph sr["solo-runner"]
+        listenA["listener thread<br>repo-a"]
+        listenB["listener thread<br>repo-b"]
+        listenC["listener thread<br>repo-c"]
+        queue[("global queue<br>oldest first")]
+        slots["MAX_CONCURRENT<br>slots"]
+        run["run_runner()<br>as today"]
+    end
+    setA -- "long-poll session" --> listenA
+    setB -- "long-poll session" --> listenB
+    setC -- "long-poll session" --> listenC
+    listenA & listenB & listenC -- "JobAvailable" --> queue
+    queue -- "acquire when a<br>slot is free" --> slots --> run
+
+    classDef gh fill:#ddf4ff,stroke:#0969da,color:#0b1f33
+    classDef host fill:#dafbe1,stroke:#1a7f37,color:#0b2912
+    classDef limit fill:#fff8c5,stroke:#9a6700,color:#3b2300
+    class setA,setB,setC gh
+    class listenA,listenB,listenC,queue,run host
+    class slots limit
 ```
 
 - **Discovery stays.** `REPOS`, `REPO_EXCLUDE`, the public-repo refusal and
