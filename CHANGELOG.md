@@ -20,6 +20,10 @@ releases.
 - Optional `CONFIG_FILE` (YAML) with settings per repo: `labels` and
   `max_concurrent`, for single repos or glob patterns. The environment stays
   the default for everything the file leaves out.
+- Optional Prometheus metrics on `METRICS_PORT` (`/metrics`): free and busy
+  slots, runners and jobs started and finished per repo, idle and failed
+  runners, job wait time, queued jobs, GitHub API requests, errors and rate
+  limit.
 
 ## [0.1.0] - 2026-11-18
 
