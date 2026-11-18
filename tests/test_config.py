@@ -55,3 +55,81 @@ def test_invalid(env, message):
 def test_default_label_not_duplicated():
     config = load({"GITHUB_TOKEN": "a", "LABELS": "self-hosted,homelab"})
     assert config.runner_labels.count("self-hosted") == 1
+
+
+CONFIG_FILE = """\
+repos:
+  me/heavy:
+    max_concurrent: 1
+    labels: [solo, bigdisk]
+  "*-sandbox":
+    labels: sandbox
+  me/heavy-too:
+    max_concurrent: 2
+"""
+
+
+def write_config(tmp_path, text):
+    path = tmp_path / "config.yaml"
+    path.write_text(text)
+    return str(path)
+
+
+def test_config_file_per_repo_settings(tmp_path):
+    env = {
+        "GITHUB_TOKEN": "a",
+        "LABELS": "solo",
+        "MAX_CONCURRENT": "3",
+        "CONFIG_FILE": write_config(tmp_path, CONFIG_FILE),
+    }
+    config = load(env)
+    assert config.labels_for("me/heavy") == ["solo", "bigdisk"]
+    assert config.runner_labels_for("me/heavy")[-2:] == ["solo", "bigdisk"]
+    assert config.max_concurrent_for("me/heavy") == 1
+    # Patterns match owner/repo and repo, ignoring case, like REPO_EXCLUDE.
+    assert config.labels_for("Me/Web-Sandbox") == ["sandbox"]
+    assert config.max_concurrent_for("me/web-sandbox") is None
+    # Labels not set in the file: LABELS from the environment.
+    assert config.labels_for("me/heavy-too") == ["solo"]
+    assert config.max_concurrent_for("me/heavy-too") == 2
+    assert config.labels_for("me/other") == ["solo"]
+    assert config.max_concurrent_for("me/other") is None
+    assert config.runner_labels == config.runner_labels_for("me/other")
+
+
+def test_config_file_first_match_wins(tmp_path):
+    text = 'repos:\n  me/a:\n    labels: [first]\n  "*":\n    labels: [rest]\n'
+    config = load({"GITHUB_TOKEN": "a", "CONFIG_FILE": write_config(tmp_path, text)})
+    assert config.labels_for("me/a") == ["first"]
+    assert config.labels_for("me/b") == ["rest"]
+
+
+@pytest.mark.parametrize("text", ["", "# nothing yet\n", "repos:\n"])
+def test_config_file_may_be_empty(tmp_path, text):
+    config = load({"GITHUB_TOKEN": "a", "CONFIG_FILE": write_config(tmp_path, text)})
+    assert config.repo_settings == []
+
+
+@pytest.mark.parametrize(
+    "text, message",
+    [
+        ("defaults:\n  labels: [x]\n", "unknown top-level"),
+        ("repos: [me/a]\n", "must map"),
+        ("repos:\n  me/a:\n    label: [x]\n", "unknown setting"),
+        ("repos:\n  me/a:\n    max_concurrent: 0\n", "at least 1"),
+        ("repos:\n  me/a:\n    max_concurrent: two\n", "whole number"),
+        ("repos:\n  me/a:\n    max_concurrent: true\n", "whole number"),
+        ("repos:\n  me/a:\n    labels: [a b]\n", "spaces"),
+        ("repos:\n  me/a: solo\n", "expected settings"),
+        ("repos:\n  a/b/c:\n    labels: [x]\n", "owner/repo"),
+        ("repos:\n  me/a:\n\tlabels: [x]\n", "line 3"),
+    ],
+)
+def test_config_file_invalid(tmp_path, text, message):
+    with pytest.raises(ConfigError, match=message):
+        load({"GITHUB_TOKEN": "a", "CONFIG_FILE": write_config(tmp_path, text)})
+
+
+def test_config_file_missing(tmp_path):
+    with pytest.raises(ConfigError, match="CONFIG_FILE"):
+        load({"GITHUB_TOKEN": "a", "CONFIG_FILE": str(tmp_path / "nope.yaml")})
