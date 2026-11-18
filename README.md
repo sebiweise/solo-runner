@@ -19,22 +19,16 @@ jobs and starts a fresh, single-use runner for whichever job has waited
 longest, never more than `MAX_CONCURRENT` at a time.
 
 ```mermaid
-sequenceDiagram
-    autonumber
-    participant GH as GitHub<br>(your private repos)
-    participant SR as solo-runner<br>(your server)
-    participant R as Just-in-time runner<br>(one per job)
-    Note over GH,SR: Every connection goes out from your server (HTTPS).<br>No webhook, no open port.
-    SR->>GH: Any queued jobs? (poll every repo, with ETag)
-    GH-->>SR: repo-a: job queued, repo-b: job queued
-    Note over SR: Pick the oldest matching job (repo-a),<br>if a slot is free (MAX_CONCURRENT)
-    SR->>GH: generate-jitconfig for repo-a
-    GH-->>SR: single-use runner config
-    SR->>R: start runner in a free slot
-    R->>GH: take one job and run it
-    R-->>SR: exit after that one job
-    Note over SR: Delete runner, empty work directory,<br>then the next job (repo-b)
+flowchart LR
+    repos["Your private repos<br>jobs waiting"]
+    sr["solo-runner<br>on your server"]
+    runner["Fresh runner<br>one job, then gone"]
+    repos -- "queued jobs<br>(solo-runner polls)" --> sr
+    sr -- "starts, at most<br>MAX_CONCURRENT" --> runner
+    runner -- "runs the job" --> repos
 ```
+
+The step-by-step flow is in [How it works](#how-it-works).
 
 - **No organisation needed.** Works with repos owned by your user account.
 - **One container.** `docker compose up -d` with a token. No Kubernetes, no
@@ -58,6 +52,7 @@ sequenceDiagram
 - [Jobs that use Docker](#jobs-that-use-docker)
 - [Monitoring](#monitoring)
 - [Bring your own runner image](#bring-your-own-runner-image)
+- [How it works](#how-it-works)
 - [How it compares](#how-it-compares)
 - [Troubleshooting](#troubleshooting)
 
@@ -313,6 +308,28 @@ ENTRYPOINT ["python3", "-m", "solo_runner"]
 ```
 
 It needs `python3` (3.10 or later) and the runner's `run.sh` in `RUNNER_DIR`.
+
+## How it works
+
+One cycle, from a queued job to a clean slot:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant GH as GitHub<br>(your private repos)
+    participant SR as solo-runner<br>(your server)
+    participant R as Just-in-time runner<br>(one per job)
+    Note over GH,SR: Every connection goes out from your server (HTTPS).<br>No webhook, no open port.
+    SR->>GH: Any queued jobs? (poll every repo, with ETag)
+    GH-->>SR: repo-a: job queued, repo-b: job queued
+    Note over SR: Pick the oldest matching job (repo-a),<br>if a slot is free (MAX_CONCURRENT)
+    SR->>GH: generate-jitconfig for repo-a
+    GH-->>SR: single-use runner config
+    SR->>R: start runner in a free slot
+    R->>GH: take one job and run it
+    R-->>SR: exit after that one job
+    Note over SR: Delete runner, empty work directory,<br>then the next job (repo-b)
+```
 
 ## How it compares
 
