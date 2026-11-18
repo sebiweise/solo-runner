@@ -104,6 +104,21 @@ def queued_seconds(created_at: str, now: float) -> float | None:
     return max(0.0, now - created)
 
 
+def runner_env(config: Config, base) -> dict:
+    """The environment a runner (and every job step it starts) gets."""
+    env = dict(base)
+    # ghcr.io/actions/actions-runner sets ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT=1,
+    # which copies the runner's internal trace (thousands of lines per job) to
+    # stdout. The job's own output is in GitHub's UI anyway, so it is off
+    # unless RUNNER_TRACE asks for it.
+    env.pop("ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT", None)
+    if config.runner_trace:
+        env["ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT"] = "1"
+    if os.geteuid() == 0:
+        env["RUNNER_ALLOW_RUNASROOT"] = "1"
+    return env
+
+
 def clear_dir(path: str) -> None:
     """Empty path (create it if missing), keeping the directory itself."""
     os.makedirs(path, exist_ok=True)
@@ -331,9 +346,7 @@ class Dispatcher:
             self.metrics.inc("solo_runner_runners_started_total", repo=slot.repo)
             log(f"{slot.repo}: started runner {slot.name}", slot=slot.index)
 
-            env = dict(os.environ)
-            if os.geteuid() == 0:
-                env["RUNNER_ALLOW_RUNASROOT"] = "1"
+            env = runner_env(config, os.environ)
             slot.process = subprocess.Popen(
                 ["./run.sh", "--jitconfig", jit["encoded_jit_config"]],
                 cwd=runner_copy,
