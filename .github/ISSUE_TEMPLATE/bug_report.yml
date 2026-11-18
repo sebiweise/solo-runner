@@ -1,0 +1,57 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. **Do not paste tokens, private keys or
+        JIT configs.** Redact repo names you do not want to share.
+        Security problems go to *Security → Report a vulnerability*, not here.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Image tag or version
+      description: The tag you run, e.g. `ghcr.io/sebiweise/solo-runner:0.1.0`, or the commit for a self-built image.
+    validations:
+      required: true
+  - type: dropdown
+    id: auth
+    attributes:
+      label: Authentication
+      options:
+        - Fine-grained PAT
+        - Classic PAT
+        - GitHub App
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: |
+        Your `compose.yaml` service or `docker run` command, with secrets
+        removed. Say whether the Docker socket is mounted.
+      render: yaml
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Output of `docker logs` around the problem. Check it for tokens
+        before you submit.
+      render: text
+  - type: input
+    id: host
+    attributes:
+      label: Host
+      description: OS, architecture (amd64/arm64) and Docker version.
