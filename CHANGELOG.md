@@ -11,6 +11,12 @@ releases.
 - A logo (`docs/assets/logo.svg`) and a README banner with light and dark
   variants.
 
+### Changed
+
+- New README section "How it works" with a step-by-step Mermaid diagram of
+  one job cycle; the Runner Scale Sets proposal diagram is a Mermaid diagram
+  instead of ASCII art.
+
 ## [0.2.1] - 2026-11-18
 
 ### Changed
