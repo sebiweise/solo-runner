@@ -6,6 +6,8 @@ releases.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-18
+
 ### Added
 
 - Issue forms (bug report, feature request), a pull request template and
