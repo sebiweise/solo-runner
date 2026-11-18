@@ -74,8 +74,12 @@ def pick_jobs(jobs, idle_per_repo: dict, free: int, room_per_repo: dict = None) 
     return picked
 
 
-def filter_repos(repos, config: Config, warn=log) -> list:
-    """(full_name, private, archived) -> names solo-runner may serve."""
+def filter_repos(repos, config: Config, public=None) -> list:
+    """(full_name, private, archived) -> names solo-runner may serve.
+
+    Public repos refused for lack of ALLOW_PUBLIC_REPOS are added to the
+    public list if one is given, so the caller decides when to warn.
+    """
     result = []
     for name, private, archived in repos:
         if archived:
@@ -86,10 +90,8 @@ def filter_repos(repos, config: Config, warn=log) -> list:
         ):
             continue
         if not private and not config.allow_public_repos:
-            warn(
-                f"{name}: public repo skipped (a pull request from a fork could run code on this host;"
-                " see ALLOW_PUBLIC_REPOS)"
-            )
+            if public is not None:
+                public.append(name)
             continue
         result.append(name)
     return sorted(set(result))
@@ -192,6 +194,7 @@ class Dispatcher:
             github = GitHub(auth, config.api_url, metrics=self.metrics)
         self.github = github
         self.repos = []
+        self._public_skipped = set()
         self._next_discovery = 0.0
         self._slots = {}
         self._lock = threading.Lock()
@@ -218,7 +221,9 @@ class Dispatcher:
                 found.append((info["full_name"], bool(info.get("private")), bool(info.get("archived"))))
         else:
             found = self.github.accessible_repos()
-        repos = filter_repos(found, self.config)
+        public = []
+        repos = filter_repos(found, self.config, public=public)
+        self._log_public_skipped(set(public))
         if repos != self.repos:
             log(f"serving {len(repos)} repos", repos=" ".join(repos))
             for entry in self.config.repo_settings:
@@ -226,6 +231,21 @@ class Dispatcher:
                     log(f"{self.config.config_file}: '{entry.pattern}' matches no served repo")
         self.repos = repos
         self._next_discovery = time.monotonic() + self.config.discovery_interval
+
+    def _log_public_skipped(self, public: set) -> None:
+        # A fine-grained token can always read every public repo, whatever
+        # repos it was granted, so with REPOS=auto the same public repos come
+        # back on every discovery. Warn about a repo only when it first shows
+        # up, and sum up only when the set changes.
+        if public == self._public_skipped:
+            return
+        for name in sorted(public - self._public_skipped):
+            log(
+                f"{name}: public repo skipped (a pull request from a fork could run code on this host;"
+                " see ALLOW_PUBLIC_REPOS)"
+            )
+        log(f"skipped {len(public)} public repos", repos=" ".join(sorted(public)))
+        self._public_skipped = public
 
     # --- heartbeat --------------------------------------------------------
 
