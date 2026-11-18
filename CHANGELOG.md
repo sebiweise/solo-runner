@@ -6,6 +6,11 @@ releases.
 
 ## [Unreleased]
 
+### Changed
+
+- The README's overview diagram and the Runner Scale Sets proposal diagram are
+  Mermaid diagrams instead of ASCII art, so GitHub renders them.
+
 ## [0.2.1] - 2026-11-18
 
 ### Changed

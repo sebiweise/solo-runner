@@ -18,15 +18,19 @@ small server. solo-runner turns that around. It watches every repo for queued
 jobs and starts a fresh, single-use runner for whichever job has waited
 longest, never more than `MAX_CONCURRENT` at a time.
 
-```
-          GitHub                                   your server (outbound HTTPS only)
- ┌──────────────────────┐                     ┌──────────────────────────────────────┐
- │ repo-a  job queued ──┼──── poll (ETag) ───►│ solo-runner                          │
- │ repo-b  job queued   │                     │  1. oldest matching job: repo-a      │
- │ repo-c  (idle)       │◄─ generate-jitconfig│  2. just-in-time runner for repo-a   │
- │                      │◄──── runs job ──────│  3. runner takes 1 job, then exits   │
- └──────────────────────┘                     │  4. clean up, next job (repo-b)      │
-                                              └──────────────────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph github["GitHub"]
+        repoA["repo-a: job queued"]
+        repoB["repo-b: job queued"]
+        repoC["repo-c: idle"]
+    end
+    subgraph server["your server (outbound HTTPS only)"]
+        sr["<b>solo-runner</b><br>1) oldest matching job: repo-a<br>2) just-in-time runner for repo-a<br>3) runner takes 1 job, then exits<br>4) clean up, next job (repo-b)"]
+    end
+    repoA -- "poll (ETag)" --> sr
+    sr -- "generate-jitconfig" --> github
+    sr -- "runs job" --> github
 ```
 
 - **No organisation needed.** Works with repos owned by your user account.

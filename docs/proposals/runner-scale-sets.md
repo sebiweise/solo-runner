@@ -58,16 +58,28 @@ is requeued, up to three times.
 
 ## How it would map onto a personal account
 
-```
-            GitHub (Actions service)                 solo-runner
- ┌──────────────────────────────────────┐     ┌──────────────────────────────┐
- │ repo-a: scale set "solo" ◄─ session ─┼─────┤ listener thread repo-a  ┐    │
- │ repo-b: scale set "solo" ◄─ session ─┼─────┤ listener thread repo-b  ├─►  │
- │ repo-c: scale set "solo" ◄─ session ─┼─────┤ listener thread repo-c  ┘    │
- └──────────────────────────────────────┘     │   global queue (oldest first)│
-                                              │   MAX_CONCURRENT slots       │
-                                              │   run_runner() as today      │
-                                              └──────────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph github["GitHub (Actions service)"]
+        setA["repo-a: scale set #quot;solo#quot;"]
+        setB["repo-b: scale set #quot;solo#quot;"]
+        setC["repo-c: scale set #quot;solo#quot;"]
+    end
+    subgraph sr["solo-runner"]
+        listenA["listener thread repo-a"]
+        listenB["listener thread repo-b"]
+        listenC["listener thread repo-c"]
+        queue["global queue (oldest first)"]
+        slots["MAX_CONCURRENT slots"]
+        run["run_runner() as today"]
+        listenA --> queue
+        listenB --> queue
+        listenC --> queue
+        queue --> slots --> run
+    end
+    listenA -- session --> setA
+    listenB -- session --> setB
+    listenC -- session --> setC
 ```
 
 - **Discovery stays.** `REPOS`, `REPO_EXCLUDE`, the public-repo refusal and
