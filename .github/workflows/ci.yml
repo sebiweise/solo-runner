@@ -18,7 +18,7 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
-      - run: pip install ruff==0.17.5
+      - run: pip install --only-binary ":all:" ruff==0.17.5
       - run: ruff check .
       - run: ruff format --check .
       - uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
@@ -36,7 +36,7 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python }}
-      - run: pip install pytest
+      - run: pip install --only-binary ":all:" pytest==9.2.0
       - run: pytest -q
 
   image:

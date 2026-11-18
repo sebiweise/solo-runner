@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/sebiweise/solo-runner/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sebiweise/solo-runner/actions/workflows/ci.yml)
 [![E2E](https://github.com/sebiweise/solo-runner/actions/workflows/e2e.yml/badge.svg?branch=main)](https://github.com/sebiweise/solo-runner/actions/workflows/e2e.yml)
+[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=sebiweise_solo-runner&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=sebiweise_solo-runner)
 [![Release](https://img.shields.io/github/v/release/sebiweise/solo-runner?sort=semver)](https://github.com/sebiweise/solo-runner/releases/latest)
 [![Image](https://img.shields.io/badge/image-ghcr.io-blue?logo=docker)](https://github.com/sebiweise/solo-runner/pkgs/container/solo-runner)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python)](pyproject.toml)

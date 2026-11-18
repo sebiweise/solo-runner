@@ -77,7 +77,7 @@ Run all three before every push; CI runs the same (plus hadolint and an image
 build):
 
 ```bash
-pip install pytest ruff==0.17.5   # the ruff version pinned in ci.yml
+pip install pytest==9.2.0 ruff==0.17.5   # the versions pinned in ci.yml
 pytest -q
 ruff check .
 ruff format --check .
