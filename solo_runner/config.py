@@ -1,12 +1,16 @@
-"""Configuration from environment variables.
+"""Configuration from environment variables, plus an optional config file.
 
 Secrets can also come from files (`*_FILE`), so they work with Docker secrets
-and never show up in `docker inspect`.
+and never show up in `docker inspect`. The environment holds the defaults;
+CONFIG_FILE can change `labels` and `max_concurrent` for single repos.
 """
 
+import fnmatch
 import os
 import platform
 from dataclasses import dataclass, field
+
+from . import miniyaml
 
 
 class ConfigError(Exception):
@@ -16,6 +20,20 @@ class ConfigError(Exception):
 def _arch_label() -> str:
     machine = platform.machine().lower()
     return {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64", "arm64": "arm64"}.get(machine, machine)
+
+
+@dataclass
+class RepoSettings:
+    """One entry under `repos:` in the config file. None = use the environment's value."""
+
+    pattern: str
+    labels: list = None
+    max_concurrent: int = None
+
+    def matches(self, repo: str) -> bool:
+        # Like REPO_EXCLUDE: against owner/repo and repo. GitHub names ignore case.
+        repo, pattern = repo.lower(), self.pattern.lower()
+        return fnmatch.fnmatchcase(repo, pattern) or fnmatch.fnmatchcase(repo.split("/", 1)[-1], pattern)
 
 
 @dataclass
@@ -40,6 +58,8 @@ class Config:
     log_format: str = "text"
     api_url: str = "https://api.github.com"
     arch: str = field(default_factory=_arch_label)
+    config_file: str = ""
+    repo_settings: list = field(default_factory=list)  # RepoSettings, first match wins
 
     @property
     def default_labels(self) -> list:
@@ -47,7 +67,28 @@ class Config:
 
     @property
     def runner_labels(self) -> list:
-        return self.default_labels + [label for label in self.labels if label.lower() not in self.default_labels]
+        return self.runner_labels_for(None)
+
+    def settings_for(self, repo):
+        """The first config file entry that matches repo, or None."""
+        if repo is None:
+            return None
+        return next((entry for entry in self.repo_settings if entry.matches(repo)), None)
+
+    def labels_for(self, repo) -> list:
+        """The extra labels for repo: its config file entry's, else LABELS."""
+        entry = self.settings_for(repo)
+        return entry.labels if entry is not None and entry.labels is not None else self.labels
+
+    def runner_labels_for(self, repo) -> list:
+        return self.default_labels + [
+            label for label in self.labels_for(repo) if label.lower() not in self.default_labels
+        ]
+
+    def max_concurrent_for(self, repo):
+        """The repo's own limit, or None if only MAX_CONCURRENT applies."""
+        entry = self.settings_for(repo)
+        return entry.max_concurrent if entry is not None else None
 
 
 def _secret(env, name: str) -> str:
@@ -87,6 +128,71 @@ def _bool(env, name: str, default: bool) -> bool:
 
 def _split(raw: str) -> list:
     return [item for item in raw.replace(",", " ").split() if item]
+
+
+_REPO_KEYS = {"labels", "max_concurrent"}
+
+
+def _labels(value, where: str) -> list:
+    if isinstance(value, str):
+        value = _split(value)
+    if not isinstance(value, list) or not all(isinstance(item, (str, int)) and str(item) for item in value):
+        raise ConfigError(f"{where}: labels must be a list of names, e.g. [solo, gpu]")
+    labels = [str(item).strip() for item in value]
+    if any(not label or " " in label or "," in label for label in labels):
+        raise ConfigError(f"{where}: a label must not be empty or contain spaces or commas")
+    return labels
+
+
+def parse_repo_settings(text: str, source: str = "config file") -> list:
+    """The `repos:` entries of a config file, in file order."""
+    try:
+        data = miniyaml.loads(text)
+    except miniyaml.YAMLError as err:
+        raise ConfigError(f"{source}: {err}") from None
+    if data is None:
+        return []
+    if not isinstance(data, dict):
+        raise ConfigError(f"{source}: expected a mapping with 'repos:' at the top")
+    unknown = sorted(str(key) for key in data if key != "repos")
+    if unknown:
+        raise ConfigError(f"{source}: unknown top-level key(s) {', '.join(unknown)}; only 'repos' is supported")
+    repos = data.get("repos")
+    if repos is None:
+        return []
+    if not isinstance(repos, dict):
+        raise ConfigError(f"{source}: 'repos' must map repo names or patterns to settings")
+    result = []
+    for pattern, settings in repos.items():
+        where = f"{source}: repos.{pattern}"
+        if not isinstance(pattern, str) or not pattern.strip() or pattern.count("/") > 1:
+            raise ConfigError(f"{where}: key must be owner/repo, repo or a glob pattern")
+        if settings is None:
+            settings = {}
+        if not isinstance(settings, dict):
+            raise ConfigError(f"{where}: expected settings (labels, max_concurrent)")
+        unknown = sorted(str(key) for key in settings if key not in _REPO_KEYS)
+        if unknown:
+            raise ConfigError(f"{where}: unknown setting(s) {', '.join(unknown)}; use labels, max_concurrent")
+        entry = RepoSettings(pattern.strip())
+        if settings.get("labels") is not None:
+            entry.labels = _labels(settings["labels"], where)
+        if settings.get("max_concurrent") is not None:
+            value = settings["max_concurrent"]
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ConfigError(f"{where}: max_concurrent must be a whole number of at least 1")
+            entry.max_concurrent = value
+        result.append(entry)
+    return result
+
+
+def load_config_file(path: str) -> list:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            text = handle.read()
+    except OSError as err:
+        raise ConfigError(f"CONFIG_FILE: {err}") from None
+    return parse_repo_settings(text, os.path.basename(path))
 
 
 def load(env=None) -> Config:
@@ -131,4 +237,7 @@ def load(env=None) -> Config:
     if config.log_format not in ("text", "json"):
         raise ConfigError(f"LOG_FORMAT must be text or json, got {config.log_format!r}")
     config.api_url = env.get("GITHUB_API_URL", config.api_url).rstrip("/")
+    config.config_file = env.get("CONFIG_FILE", "").strip()
+    if config.config_file:
+        config.repo_settings = load_config_file(config.config_file)
     return config

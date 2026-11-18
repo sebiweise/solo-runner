@@ -24,7 +24,9 @@ the `E2E_GITHUB_TOKEN` secret is set; see CONTRIBUTING.md.
 solo_runner/            the dispatcher, Python standard library only
   __init__.py           __version__ (also the package version in pyproject.toml)
   __main__.py           entry point: python3 -m solo_runner; exit 2 on config errors
-  config.py             Config dataclass, load() from env; *_FILE secrets, removed from env
+  config.py             Config dataclass, load() from env; *_FILE secrets, removed from env;
+                        optional CONFIG_FILE with labels/max_concurrent per repo (RepoSettings)
+  miniyaml.py           the small YAML subset CONFIG_FILE accepts (no PyYAML)
   dispatcher.py         job_matches, pick_jobs, filter_repos, slots, main loop (Dispatcher)
   github.py             REST client on urllib: ETag cache, pagination, jobs, JIT config, runners
   appauth.py            GitHub App JWT: own PEM/DER parser + RS256, no `cryptography`
