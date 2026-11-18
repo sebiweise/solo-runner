@@ -61,8 +61,9 @@ you trust before you start.
 
 - **Private repos only.** On a public repo, a pull request from a fork can run
   its code on your runner. solo-runner skips public repos unless you set
-  `ALLOW_PUBLIC_REPOS=true`, and logs a warning for each one it skips. Public
-  repos get GitHub-hosted runners for free anyway.
+  `ALLOW_PUBLIC_REPOS=true`, and logs a warning for each one it skips (once,
+  when it first sees it). Public repos get GitHub-hosted runners for free
+  anyway.
 - **The Docker socket is root on the host.** Without it (the default), a job
   runs as the unprivileged `runner` user inside the container. With
   `/var/run/docker.sock` mounted, any job can start a privileged container and
