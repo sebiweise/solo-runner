@@ -6,6 +6,12 @@ releases.
 
 ## [Unreleased]
 
+### Added
+
+- Optional `CONFIG_FILE` (YAML) with settings per repo: `labels` and
+  `max_concurrent`, for single repos or glob patterns. The environment stays
+  the default for everything the file leaves out.
+
 ## [0.1.0] - 2026-11-18
 
 First release, extracted from a homelab setup that ran one shared runner for
