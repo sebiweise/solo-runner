@@ -8,6 +8,10 @@ releases.
 
 ### Added
 
+- Issue forms (bug report, feature request), a pull request template and
+  README badges.
+- Ruleset for `main` and a maintainer guide to set it up
+  (`docs/maintainers/branch-protection.md`).
 - End-to-end test workflow: runs real jobs through the image against a private
   test repo on pull requests, weekly and on demand (`.github/workflows/e2e.yml`).
 
