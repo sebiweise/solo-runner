@@ -1,4 +1,9 @@
-# solo-runner
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner-dark.svg">
+    <img alt="solo-runner: ephemeral self-hosted GitHub Actions runners for every private repo of a personal account" src="docs/assets/banner-light.svg" width="100%">
+  </picture>
+</p>
 
 [![CI](https://github.com/sebiweise/solo-runner/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sebiweise/solo-runner/actions/workflows/ci.yml)
 [![E2E](https://github.com/sebiweise/solo-runner/actions/workflows/e2e.yml/badge.svg?branch=main)](https://github.com/sebiweise/solo-runner/actions/workflows/e2e.yml)

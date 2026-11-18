@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-label="solo-runner">
+  <defs>
+    <linearGradient id="sr-logo-g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="1" stop-color="#06b6d4"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="30" fill="url(#sr-logo-g)"/>
+  <g stroke="#fff" stroke-linecap="round" stroke-width="8" fill="none">
+    <path d="M24 46h18" opacity=".55"/>
+    <path d="M16 64h28" opacity=".85"/>
+    <path d="M24 82h18" opacity=".55"/>
+  </g>
+  <path d="M60 38v52l40-26z" fill="#fff" stroke="#fff" stroke-width="10" stroke-linejoin="round"/>
+</svg>
