@@ -6,6 +6,11 @@ releases.
 
 ## [Unreleased]
 
+### Changed
+
+- The runner's internal trace (`[RUNNER ...]`/`[WORKER ...]` lines, about 3,900
+  per job) is no longer copied to the log; `RUNNER_TRACE=true` turns it back on.
+
 ### Added
 
 - Issue forms (bug report, feature request), a pull request template and
