@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a vulnerability
+    url: https://github.com/sebiweise/solo-runner/security/advisories/new
+    about: Security problems are reported privately, never as a public issue.
+  - name: Documentation
+    url: https://github.com/sebiweise/solo-runner#readme
+    about: Configuration, security notes and troubleshooting.

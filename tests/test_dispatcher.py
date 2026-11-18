@@ -37,6 +37,25 @@ def job(repo, created, job_id):
     return {"repo": repo, "created_at": created, "id": job_id}
 
 
+def test_pick_jobs_per_repo_limit():
+    jobs = [job("me/a", "1", 1), job("me/a", "2", 2), job("me/b", "3", 3), job("me/a", "4", 4)]
+    # me/a may get one more runner: its second job waits, me/b's younger job goes first.
+    assert [j["id"] for j in pick_jobs(jobs, {}, 3, {"me/a": 1})] == [1, 3]
+    assert [j["id"] for j in pick_jobs(jobs, {}, 3, {"me/a": 0})] == [3]
+    # An idle me/a runner takes job 1 whatever the limit; job 2 needs room.
+    assert [j["id"] for j in pick_jobs(jobs, {"me/a": 1}, 3, {"me/a": 0})] == [3]
+
+
+def test_job_matches_per_repo_labels(tmp_path):
+    path = tmp_path / "config.yaml"
+    path.write_text("repos:\n  me/gpu:\n    labels: [solo, gpu]\n")
+    config = make_config(tmp_path, LABELS="solo", CONFIG_FILE=str(path))
+    assert job_matches(["solo"], config, "me/a")
+    assert not job_matches(["solo"], config, "me/gpu")  # the repo's labels replace LABELS
+    assert job_matches(["self-hosted", "solo", "gpu"], config, "me/gpu")
+    assert not job_matches(["solo", "gpu"], config, "me/a")
+
+
 def test_pick_jobs_oldest_first_and_skips_jobs_idle_runners_will_take():
     jobs = [job("me/a", "3", 3), job("me/b", "1", 1), job("me/a", "2", 2), job("me/c", "4", 4)]
     assert [j["id"] for j in pick_jobs(jobs, {}, 2)] == [1, 2]
@@ -251,3 +270,29 @@ def test_metrics_count_idle_runners_and_failures(tmp_path):
     dispatcher.tick()
     assert wait_until(lambda: dispatcher.active() == 0)
     assert dispatcher.metrics.value("solo_runner_runner_errors_total", repo="me/a") == 1
+
+
+def test_per_repo_limit_and_labels(tmp_path):
+    make_runner(tmp_path, 'echo "Running job: x"\nsleep 1\n')
+    path = tmp_path / "config.yaml"
+    path.write_text("repos:\n  me/a:\n    max_concurrent: 1\n    labels: [solo, big]\n")
+    config = make_config(tmp_path, MAX_CONCURRENT="3", LABELS="solo", CONFIG_FILE=str(path))
+
+    def queued(repo, n, labels):
+        return [
+            {"id": i, "name": "j", "labels": labels, "created_at": f"{repo}-{i}", "run_name": "CI"} for i in range(n)
+        ]
+
+    gh = FakeGitHub({"me/a": queued("me/a", 3, ["solo", "big"]), "me/b": queued("me/b", 1, ["solo"])})
+    dispatcher = Dispatcher(config, github=gh)
+    dispatcher.refresh_repos(force=True)
+    dispatcher.tick()
+    assert wait_until(lambda: len(gh.registered) == 2)
+    by_repo = {r[0]: r[2] for r in gh.registered}
+    assert sorted(by_repo) == ["me/a", "me/b"]  # only one of me/a's three jobs
+    assert by_repo["me/a"][-2:] == ("solo", "big")
+    assert "big" not in by_repo["me/b"]
+    gh.jobs["me/b"] = []  # taken
+    dispatcher.tick()  # me/a is at its limit, its other two jobs wait
+    assert len(gh.registered) == 2
+    assert wait_until(lambda: dispatcher.active() == 0)
