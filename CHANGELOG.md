@@ -9,6 +9,9 @@ releases.
 ### Changed
 
 - `compose.yaml` and the README's custom image example use the `0.2` image.
+- A skipped public repo is logged once, when it is first seen, instead of on
+  every repo discovery, plus one line such as `skipped 19 public repos` when
+  the set of skipped public repos changes.
 
 ## [0.2.0] - 2026-11-18
 

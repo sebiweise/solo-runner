@@ -72,7 +72,7 @@ def test_pick_jobs_oldest_first_and_skips_jobs_idle_runners_will_take():
 
 
 def test_filter_repos(tmp_path):
-    warnings = []
+    public = []
     config = make_config(tmp_path, REPO_EXCLUDE="*-archive me/skip")
     repos = [
         ("me/a", True, False),
@@ -81,8 +81,8 @@ def test_filter_repos(tmp_path):
         ("me/x-archive", True, False),
         ("me/skip", True, False),
     ]
-    assert filter_repos(repos, config, warn=warnings.append) == ["me/a"]
-    assert "public repo skipped" in warnings[0]
+    assert filter_repos(repos, config, public=public) == ["me/a"]
+    assert public == ["me/pub"]
     allowed = make_config(tmp_path, ALLOW_PUBLIC_REPOS="true")
     assert filter_repos(repos[:2], allowed) == ["me/a", "me/pub"]
 
@@ -227,6 +227,39 @@ def test_explicit_repo_list_still_refuses_public_repos(tmp_path):
     dispatcher = Dispatcher(make_config(tmp_path, REPOS="me/a me/public"), github=gh)
     dispatcher.refresh_repos(force=True)
     assert dispatcher.repos == ["me/a"]
+
+
+def test_public_repos_are_logged_only_when_the_set_changes(tmp_path, monkeypatch):
+    lines = []
+    monkeypatch.setattr("solo_runner.dispatcher.log", lambda message, **fields: lines.append(message))
+    gh = FakeGitHub()
+    found = [("me/a", True, False), ("me/pub1", False, False), ("me/pub2", False, False)]
+    gh.accessible_repos = lambda: list(found)
+    dispatcher = Dispatcher(make_config(tmp_path), github=gh)
+
+    dispatcher.refresh_repos(force=True)
+    skipped = [line for line in lines if "public repo skipped" in line]
+    assert [line.split(":")[0] for line in skipped] == ["me/pub1", "me/pub2"]
+    assert "skipped 2 public repos" in lines
+
+    # The next discovery finds the same public repos: nothing about them.
+    lines.clear()
+    dispatcher.refresh_repos(force=True)
+    assert not any("public" in line for line in lines)
+
+    # A new public repo is named on its own; a gone one only changes the count.
+    lines.clear()
+    found[1] = ("me/pub3", False, False)
+    dispatcher.refresh_repos(force=True)
+    assert [line for line in lines if "public" in line] == [
+        "me/pub3: public repo skipped (a pull request from a fork could run code on this host; see ALLOW_PUBLIC_REPOS)",
+        "skipped 2 public repos",
+    ]
+
+    lines.clear()
+    del found[1:]
+    dispatcher.refresh_repos(force=True)
+    assert [line for line in lines if "public" in line] == ["skipped 0 public repos"]
 
 
 def test_metrics_follow_a_job(tmp_path):
