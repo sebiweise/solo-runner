@@ -8,6 +8,12 @@ releases.
 
 ### Added
 
+- Issue forms (bug report, feature request), a pull request template and
+  README badges.
+- Ruleset for `main` and a maintainer guide to set it up
+  (`docs/maintainers/branch-protection.md`).
+- End-to-end test workflow: runs real jobs through the image against a private
+  test repo on pull requests, weekly and on demand (`.github/workflows/e2e.yml`).
 - The docker compose plugin in the image is kept current: a daily workflow opens
   a pull request for each new compose release, and a merged bump is released as
   the next patch version, like runner base image bumps.
