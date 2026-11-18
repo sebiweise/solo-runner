@@ -85,20 +85,16 @@ def test_changelog_entry_joins_existing_changed_and_replaces_older_bump():
     )
 
 
-def test_main_bumps_and_writes_outputs(repo, monkeypatch):
-    output = repo / "out"
-    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+def test_main_bumps_and_prints_outputs(repo, capsys):
     previous = current_version((repo / "Dockerfile").read_text())
     assert main([], root=repo, get=fake_get("v99.1.0")) == 0
     assert current_version((repo / "Dockerfile").read_text()) == "99.1.0"
     assert f"- Docker compose plugin 99.1.0 (was {previous})." in (repo / "CHANGELOG.md").read_text()
-    assert output.read_text() == f"previous={previous}\nversion=99.1.0\n"
+    assert capsys.readouterr().out == f"previous={previous}\nversion=99.1.0\n"
 
 
-def test_main_leaves_current_or_older_alone(repo, monkeypatch):
-    output = repo / "out"
-    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+def test_main_leaves_current_or_older_alone(repo, capsys):
     before = (repo / "Dockerfile").read_text(), (repo / "CHANGELOG.md").read_text()
     assert main(["--version", "0.0.1"], root=repo, get=fake_get()) == 0
     assert ((repo / "Dockerfile").read_text(), (repo / "CHANGELOG.md").read_text()) == before
-    assert output.read_text().endswith("version=\n")
+    assert capsys.readouterr().out.endswith("version=\n")
