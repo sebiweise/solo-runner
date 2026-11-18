@@ -6,6 +6,11 @@ releases.
 
 ## [Unreleased]
 
+### Added
+
+- A logo (`docs/assets/logo.svg`) and a README banner with light and dark
+  variants.
+
 ### Changed
 
 - New README section "How it works" with a step-by-step Mermaid diagram of
