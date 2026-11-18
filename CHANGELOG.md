@@ -6,6 +6,11 @@ releases.
 
 ## [Unreleased]
 
+### Added
+
+- A logo (`docs/assets/logo.svg`) and a README banner with light and dark
+  variants.
+
 ## [0.2.1] - 2026-11-18
 
 ### Changed
