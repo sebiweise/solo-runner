@@ -6,8 +6,9 @@ request when it changes something. Standard library only, like the dispatcher.
 
     python3 scripts/update_compose.py [--version X.Y.Z]
 
-Prints what it did. On GitHub Actions it also writes `previous` and `version`
-to $GITHUB_OUTPUT; `version` is empty when the Dockerfile is already current.
+Says what it did on stderr and prints `previous=X.Y.Z` and `version=X.Y.Z` on
+stdout, for the workflow to append to $GITHUB_OUTPUT; `version` is empty when
+the Dockerfile is already current.
 """
 
 import argparse
@@ -121,14 +122,10 @@ def main(argv=None, root: Path | None = None, get=fetch) -> int:
     if updated:
         dockerfile_path.write_text(bump_dockerfile(dockerfile, target, checksums(target, get)))
         changelog_path.write_text(add_changelog_entry(changelog_path.read_text(), previous, target))
-        print(f"docker compose {previous} -> {target}")
+        print(f"docker compose {previous} -> {target}", file=sys.stderr)
     else:
-        print(f"docker compose {previous} is current (latest: {target})")
-
-    output = os.environ.get("GITHUB_OUTPUT")
-    if output:
-        with open(output, "a") as fh:
-            fh.write(f"previous={previous}\nversion={target if updated else ''}\n")
+        print(f"docker compose {previous} is current (latest: {target})", file=sys.stderr)
+    print(f"previous={previous}\nversion={target if updated else ''}")
     return 0
 
 
