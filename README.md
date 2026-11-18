@@ -19,18 +19,21 @@ jobs and starts a fresh, single-use runner for whichever job has waited
 longest, never more than `MAX_CONCURRENT` at a time.
 
 ```mermaid
-flowchart LR
-    subgraph github["GitHub"]
-        repoA["repo-a: job queued"]
-        repoB["repo-b: job queued"]
-        repoC["repo-c: idle"]
-    end
-    subgraph server["your server (outbound HTTPS only)"]
-        sr["<b>solo-runner</b><br>1) oldest matching job: repo-a<br>2) just-in-time runner for repo-a<br>3) runner takes 1 job, then exits<br>4) clean up, next job (repo-b)"]
-    end
-    repoA -- "poll (ETag)" --> sr
-    sr -- "generate-jitconfig" --> github
-    sr -- "runs job" --> github
+sequenceDiagram
+    autonumber
+    participant GH as GitHub<br>(your private repos)
+    participant SR as solo-runner<br>(your server)
+    participant R as Just-in-time runner<br>(one per job)
+    Note over GH,SR: Every connection goes out from your server (HTTPS).<br>No webhook, no open port.
+    SR->>GH: Any queued jobs? (poll every repo, with ETag)
+    GH-->>SR: repo-a: job queued, repo-b: job queued
+    Note over SR: Pick the oldest matching job (repo-a),<br>if a slot is free (MAX_CONCURRENT)
+    SR->>GH: generate-jitconfig for repo-a
+    GH-->>SR: single-use runner config
+    SR->>R: start runner in a free slot
+    R->>GH: take one job and run it
+    R-->>SR: exit after that one job
+    Note over SR: Delete runner, empty work directory,<br>then the next job (repo-b)
 ```
 
 - **No organisation needed.** Works with repos owned by your user account.
