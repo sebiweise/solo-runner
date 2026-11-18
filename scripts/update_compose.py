@@ -120,8 +120,11 @@ def main(argv=None, root: Path | None = None, get=fetch) -> int:
     target = (args.version or latest_version(get)).removeprefix("v")
     updated = parse_version(target) > parse_version(previous)
     if updated:
-        dockerfile_path.write_text(bump_dockerfile(dockerfile, target, checksums(target, get)))
-        changelog_path.write_text(add_changelog_entry(changelog_path.read_text(), previous, target))
+        # SonarCloud reads the release data as a tainted path (S2083). The paths are fixed
+        # repo files; only the content comes from the release, and parse_version() and
+        # checksums() have already rejected anything but X.Y.Z and 64 hex digits.
+        dockerfile_path.write_text(bump_dockerfile(dockerfile, target, checksums(target, get)))  # NOSONAR
+        changelog_path.write_text(add_changelog_entry(changelog_path.read_text(), previous, target))  # NOSONAR
         print(f"docker compose {previous} -> {target}", file=sys.stderr)
     else:
         print(f"docker compose {previous} is current (latest: {target})", file=sys.stderr)
