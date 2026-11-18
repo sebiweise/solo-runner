@@ -31,6 +31,7 @@ solo_runner/            the dispatcher, Python standard library only
   github.py             REST client on urllib: ETag cache, pagination, jobs, JIT config, runners
   appauth.py            GitHub App JWT: own PEM/DER parser + RS256, no `cryptography`
   log.py                text or JSON lines; passthrough() for the runner's own output
+  metrics.py            optional Prometheus /metrics on METRICS_PORT; every metric is declared in DEFINITIONS
 tests/                  pytest, no network; conftest.py puts the repo on sys.path
 e2e/                    workflow the E2E test dispatches in the test repo
 Dockerfile              ghcr.io/actions/actions-runner + python3, tini, docker compose plugin

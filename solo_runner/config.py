@@ -55,6 +55,8 @@ class Config:
     runner_dir: str = "/home/runner"
     slots_dir: str = "/home/runner/_slots"
     heartbeat_url: str = ""
+    metrics_port: int = 0  # 0 = no metrics endpoint
+    metrics_addr: str = "0.0.0.0"
     log_format: str = "text"
     api_url: str = "https://api.github.com"
     arch: str = field(default_factory=_arch_label)
@@ -233,6 +235,10 @@ def load(env=None) -> Config:
     config.runner_dir = env.get("RUNNER_DIR", config.runner_dir).rstrip("/") or config.runner_dir
     config.slots_dir = env.get("SLOTS_DIR", config.runner_dir + "/_slots").rstrip("/")
     config.heartbeat_url = env.get("HEARTBEAT_URL", "").strip()
+    config.metrics_port = _int(env, "METRICS_PORT", 0, 0)
+    if config.metrics_port > 65535:
+        raise ConfigError(f"METRICS_PORT must be at most 65535, got {config.metrics_port}")
+    config.metrics_addr = env.get("METRICS_ADDR", "").strip() or config.metrics_addr
     config.log_format = env.get("LOG_FORMAT", "text").strip().lower()
     if config.log_format not in ("text", "json"):
         raise ConfigError(f"LOG_FORMAT must be text or json, got {config.log_format!r}")
