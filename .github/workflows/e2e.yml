@@ -1,0 +1,199 @@
+name: E2E
+
+# Runs the image against GitHub for real: start the container for a private
+# test repo, dispatch a workflow there whose jobs only this container can
+# take, and check that both jobs ran on solo-runner's runners and that
+# nothing was left behind. Setup: "End-to-end test" in CONTRIBUTING.md.
+#
+# Needs the secret E2E_GITHUB_TOKEN (fine-grained PAT for the test repo only).
+# Without it (pull requests from forks, Dependabot without a Dependabot
+# secret) the test is skipped, not failed.
+on:
+  pull_request:
+    paths:
+      - "solo_runner/**"
+      - Dockerfile
+      - e2e/**
+      - .github/workflows/e2e.yml
+  schedule:
+    # Weekly: catches changes on GitHub's side and runners that got too old.
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Image to test instead of building this commit, e.g. ghcr.io/sebiweise/solo-runner:0.1.0
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+# Unique labels keep parallel runs apart, but one at a time is easier to read.
+concurrency:
+  group: e2e
+
+env:
+  E2E_REPO: ${{ vars.E2E_REPO || format('{0}/solo-runner-e2e', github.repository_owner) }}
+  E2E_WORKFLOW: solo-runner-e2e.yml
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        env:
+          TOKEN: ${{ secrets.E2E_GITHUB_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::E2E_GITHUB_TOKEN is not available here, end-to-end test skipped"
+          fi
+
+  e2e:
+    needs: check
+    if: needs.check.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ secrets.E2E_GITHUB_TOKEN }}
+      IMAGE: ${{ inputs.image || 'solo-runner:e2e' }}
+      # Label and runner name prefix unique to this attempt: only this
+      # container takes the jobs, and only its runners are checked/removed.
+      LABEL: e2e-${{ github.run_id }}-${{ github.run_attempt }}
+      CONTAINER: solo-runner-e2e
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: inputs.image == ''
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        if: inputs.image == ''
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        if: inputs.image == ''
+        with:
+          context: .
+          load: true
+          tags: solo-runner:e2e
+          build-args: VERSION=e2e
+
+      - name: Start solo-runner
+        env:
+          GITHUB_TOKEN: ${{ secrets.E2E_GITHUB_TOKEN }}
+        run: |
+          # The token is passed by name, so it is not on the command line.
+          docker run -d --name "$CONTAINER" \
+            -e GITHUB_TOKEN \
+            -e REPOS="$E2E_REPO" \
+            -e LABELS="$LABEL" \
+            -e RUNNER_NAME_PREFIX="$LABEL" \
+            -e MAX_CONCURRENT=1 \
+            -e POLL_INTERVAL=5 \
+            -e IDLE_TIMEOUT=120 \
+            "$IMAGE"
+          for _ in $(seq 60); do
+            if docker logs "$CONTAINER" 2>&1 | grep -q "serving 1 repos"; then exit 0; fi
+            if [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER")" != true ]; then
+              echo "::error::solo-runner exited during startup"; exit 1
+            fi
+            sleep 2
+          done
+          echo "::error::solo-runner does not serve $E2E_REPO after 2 minutes (private? token scoped to it?)"
+          exit 1
+
+      - name: Dispatch the test workflow
+        id: dispatch
+        run: |
+          nonce="$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          ref=$(gh api "repos/$E2E_REPO" --jq .default_branch)
+          jq -n --arg ref "$ref" --arg label "$LABEL" --arg nonce "$nonce" \
+            '{ref: $ref, inputs: {label: $label, nonce: $nonce}, return_run_details: true}' \
+            | gh api -X POST "repos/$E2E_REPO/actions/workflows/$E2E_WORKFLOW/dispatches" --input - > dispatch.json \
+            || { cat dispatch.json; exit 1; }
+          run_id=$(jq -r '.workflow_run_id // empty' dispatch.json 2>/dev/null || true)
+          # Older API versions answer 204 without run details: find the run
+          # by the nonce in its title instead.
+          for _ in $(seq 30); do
+            [ -n "$run_id" ] && break
+            sleep 2
+            run_id=$(gh api "repos/$E2E_REPO/actions/workflows/$E2E_WORKFLOW/runs?event=workflow_dispatch&per_page=20" \
+              --jq "[.workflow_runs[] | select(.display_title | endswith(\" $nonce\")) | .id][0] // empty")
+          done
+          if [ -z "$run_id" ]; then echo "::error::dispatched run not found"; exit 1; fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "Test run: https://github.com/$E2E_REPO/actions/runs/$run_id"
+
+      - name: Wait for the test run
+        env:
+          RUN_ID: ${{ steps.dispatch.outputs.run_id }}
+        run: |
+          deadline=$((SECONDS + 900))
+          while :; do
+            read -r status conclusion < <(gh api "repos/$E2E_REPO/actions/runs/$RUN_ID" --jq '"\(.status) \(.conclusion)"') || true
+            echo "$(date -u +%T) $status"
+            [ "$status" = completed ] && break
+            if [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER")" != true ]; then
+              echo "::error::solo-runner exited while the test run was $status"; exit 1
+            fi
+            if [ "$SECONDS" -gt "$deadline" ]; then
+              echo "::error::test run not finished after 15 minutes"; exit 1
+            fi
+            sleep 10
+          done
+          gh api "repos/$E2E_REPO/actions/runs/$RUN_ID/jobs" \
+            --jq '.jobs[] | "\(.name): \(.conclusion) on \(.runner_name)"'
+          if [ "$conclusion" != success ]; then
+            echo "::error::test run concluded $conclusion: https://github.com/$E2E_REPO/actions/runs/$RUN_ID"; exit 1
+          fi
+
+      - name: Check runners and cleanup
+        env:
+          RUN_ID: ${{ steps.dispatch.outputs.run_id }}
+        run: |
+          fail() { echo "::error::$*"; exit 1; }
+          # Both jobs ran on runners of this container, one runner each.
+          names=$(gh api "repos/$E2E_REPO/actions/runs/$RUN_ID/jobs" --jq '.jobs[].runner_name')
+          [ "$(wc -l <<< "$names")" -eq 2 ] || fail "expected 2 jobs, got: $names"
+          while read -r name; do
+            [[ "$name" == "$LABEL-"* ]] || fail "job ran on $name, not on a solo-runner runner"
+          done <<< "$names"
+          [ "$(sort -u <<< "$names" | wc -l)" -eq 2 ] || fail "both jobs ran on the same runner: $names"
+
+          # The dispatcher noticed both runners end ...
+          for _ in $(seq 30); do
+            [ "$(docker logs "$CONTAINER" 2>&1 | grep -c "runner $LABEL-.* finished")" -ge 2 ] && break
+            sleep 2
+          done
+          [ "$(docker logs "$CONTAINER" 2>&1 | grep -c "started runner $LABEL-")" -eq 2 ] \
+            || fail "expected exactly 2 started runners"
+          [ "$(docker logs "$CONTAINER" 2>&1 | grep -c "runner $LABEL-.* finished")" -eq 2 ] \
+            || fail "expected 2 finished runners"
+
+          # ... and no runner of it is still registered in the repo.
+          left=$(gh api "repos/$E2E_REPO/actions/runners" --paginate \
+            --jq ".runners[] | select(.name | startswith(\"$LABEL-\")) | .name")
+          [ -z "$left" ] || fail "runners left behind: $left"
+
+          # SIGTERM stops it cleanly.
+          docker stop -t 30 "$CONTAINER"
+          docker logs "$CONTAINER" 2>&1 | tail -1 | grep -q "stopped" || fail "no clean shutdown"
+          [ "$(docker inspect -f '{{.State.ExitCode}}' "$CONTAINER")" -eq 0 ] || fail "exit code not 0"
+
+      - name: solo-runner log
+        if: always()
+        run: docker logs "$CONTAINER" 2>&1 || true
+
+      - name: Tidy up
+        if: always()
+        env:
+          RUN_ID: ${{ steps.dispatch.outputs.run_id }}
+        run: |
+          docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+          if [ -n "$RUN_ID" ] \
+            && [ "$(gh api "repos/$E2E_REPO/actions/runs/$RUN_ID" --jq .status)" != completed ]; then
+            gh api -X POST "repos/$E2E_REPO/actions/runs/$RUN_ID/cancel" || true
+          fi
+          for id in $(gh api "repos/$E2E_REPO/actions/runners" --paginate \
+            --jq ".runners[] | select(.name | startswith(\"$LABEL-\")) | .id"); do
+            gh api -X DELETE "repos/$E2E_REPO/actions/runners/$id" || true
+          done
