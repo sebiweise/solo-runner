@@ -19,12 +19,13 @@ jobs and starts a fresh, single-use runner for whichever job has waited
 longest, never more than `MAX_CONCURRENT` at a time.
 
 ```mermaid
+%%{init: {"flowchart": {"rankSpacing": 45, "padding": 8}}}%%
 flowchart LR
-    repos["Your private repos<br>jobs waiting"]
-    sr["solo-runner<br>on your server"]
-    runner["Fresh runner<br>one job, then gone"]
-    repos -- "queued jobs<br>(solo-runner polls)" --> sr
-    sr -- "starts, at most<br>MAX_CONCURRENT" --> runner
+    repos["Your<br>private repos"]
+    sr["solo-runner"]
+    runner["Fresh runner<br>per job"]
+    repos -- "queued jobs" --> sr
+    sr -- "starts" --> runner
     runner -- "runs the job" --> repos
 ```
 
