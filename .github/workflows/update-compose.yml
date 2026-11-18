@@ -27,7 +27,7 @@ jobs:
       - id: bump
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: python3 scripts/update_compose.py
+        run: python3 scripts/update_compose.py >> "$GITHUB_OUTPUT"
       - name: Pull request
         if: steps.bump.outputs.version != ''
         env:
