@@ -6,10 +6,7 @@ releases.
 
 ## [Unreleased]
 
-### Changed
-
-- The runner's internal trace (`[RUNNER ...]`/`[WORKER ...]` lines, about 3,900
-  per job) is no longer copied to the log; `RUNNER_TRACE=true` turns it back on.
+## [0.2.0] - 2026-11-18
 
 ### Added
 
@@ -30,6 +27,11 @@ releases.
   slots, runners and jobs started and finished per repo, idle and failed
   runners, job wait time, queued jobs, GitHub API requests, errors and rate
   limit.
+
+### Changed
+
+- The runner's internal trace (`[RUNNER ...]`/`[WORKER ...]` lines, about 3,900
+  per job) is no longer copied to the log; `RUNNER_TRACE=true` turns it back on.
 
 ## [0.1.0] - 2026-11-18
 
