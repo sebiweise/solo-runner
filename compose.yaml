@@ -11,6 +11,10 @@ services:
     volumes:
       # Node, Python, ... installed by actions/setup-* survive between jobs.
       - toolcache:/opt/hostedtoolcache
+      # Settings per repo (README, "Settings per repo"); with
+      # CONFIG_FILE=/etc/solo-runner/config.yaml in .env. Readable by jobs:
+      # no secrets in it.
+      # - ./config.yaml:/etc/solo-runner/config.yaml:ro
 
       # --- Jobs that use Docker (docker build, docker run, services:) -----
       # Uncomment both lines and `group_add` below. The socket makes every

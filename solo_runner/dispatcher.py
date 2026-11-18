@@ -35,31 +35,41 @@ HEARTBEAT_EVERY = 60
 _RUNNER_STATE = {".runner", ".credentials", ".credentials_rsaparams"}
 
 
-def job_matches(job_labels, config: Config) -> bool:
+def job_matches(job_labels, config: Config, repo: str = None) -> bool:
     """True if every label the job asks for is one this runner has, and the job
-    asks for all of the extra LABELS (so with LABELS set, plain `self-hosted`
+    asks for all of the extra labels (so with LABELS set, plain `self-hosted`
     jobs are left to other runners). `runs-on: solo` alone is enough when
-    LABELS=solo: GitHub hands a job to any runner that has all its labels."""
+    LABELS=solo: GitHub hands a job to any runner that has all its labels.
+    The extra labels are the repo's own from the config file, if it has any."""
     asked = {label.lower() for label in job_labels}
-    ours = {label.lower() for label in config.runner_labels}
-    wanted = {label.lower() for label in config.labels}
+    ours = {label.lower() for label in config.runner_labels_for(repo)}
+    wanted = {label.lower() for label in config.labels_for(repo)}
     return bool(asked) and asked <= ours and wanted <= asked
 
 
-def pick_jobs(jobs, idle_per_repo: dict, free: int) -> list:
+def pick_jobs(jobs, idle_per_repo: dict, free: int, room_per_repo: dict = None) -> list:
     """The oldest jobs to start runners for, at most `free`.
 
     A runner that has been started but has not been handed a job yet will take
     one of its repo's queued jobs, so that many jobs per repo are skipped.
+    room_per_repo holds how many more runners a repo with its own
+    max_concurrent may get; the jobs of a repo at its limit wait, and younger
+    jobs of other repos go first.
     """
     skipped = dict(idle_per_repo)
+    room = dict(room_per_repo or {})
     picked = []
     for job in sorted(jobs, key=lambda j: (j["created_at"], j["id"])):
-        if skipped.get(job["repo"], 0) > 0:
-            skipped[job["repo"]] -= 1
+        repo = job["repo"]
+        if skipped.get(repo, 0) > 0:
+            skipped[repo] -= 1
             continue
         if len(picked) >= free:
             break
+        if repo in room:
+            if room[repo] <= 0:
+                continue
+            room[repo] -= 1
         picked.append(job)
     return picked
 
@@ -196,6 +206,9 @@ class Dispatcher:
         repos = filter_repos(found, self.config)
         if repos != self.repos:
             log(f"serving {len(repos)} repos", repos=" ".join(repos))
+            for entry in self.config.repo_settings:
+                if not any(entry.matches(repo) for repo in repos):
+                    log(f"{self.config.config_file}: '{entry.pattern}' matches no served repo")
         self.repos = repos
         self._next_discovery = time.monotonic() + self.config.discovery_interval
 
@@ -218,7 +231,9 @@ class Dispatcher:
     def _scan(self, repo):
         try:
             return [
-                dict(job, repo=repo) for job in self.github.queued_jobs(repo) if job_matches(job["labels"], self.config)
+                dict(job, repo=repo)
+                for job in self.github.queued_jobs(repo)
+                if job_matches(job["labels"], self.config, repo)
             ]
         except (GitHubError, OSError, KeyError, ValueError) as err:
             return err
@@ -254,6 +269,23 @@ class Dispatcher:
     def active(self) -> int:
         with self._lock:
             return len(self._slots)
+
+    def active_per_repo(self) -> dict:
+        with self._lock:
+            counts = {}
+            for slot in self._slots.values():
+                counts[slot.repo] = counts.get(slot.repo, 0) + 1
+            return counts
+
+    def room_per_repo(self) -> dict:
+        """Free runners for each served repo that has its own max_concurrent."""
+        active = self.active_per_repo()
+        room = {}
+        for repo in self.repos:
+            limit = self.config.max_concurrent_for(repo)
+            if limit is not None:
+                room[repo] = limit - active.get(repo, 0)
+        return room
 
     def idle_per_repo(self) -> dict:
         with self._lock:
@@ -294,7 +326,7 @@ class Dispatcher:
             slot.name = f"{config.name_prefix}-{short}-{int(time.time())}-{slot.index}"[:64]
             # Same path inside and outside the container (see README): the host's
             # Docker daemon resolves a job's `docker run -v "$PWD:..."` there.
-            jit = self.github.jit_config(slot.repo, slot.name, config.runner_labels, work)
+            jit = self.github.jit_config(slot.repo, slot.name, config.runner_labels_for(slot.repo), work)
             slot.runner_id = jit["runner"]["id"]
             self.metrics.inc("solo_runner_runners_started_total", repo=slot.repo)
             log(f"{slot.repo}: started runner {slot.name}", slot=slot.index)
@@ -407,7 +439,7 @@ class Dispatcher:
         jobs, ok = self.scan()
         if ok:
             self.heartbeat()
-        picked = pick_jobs(jobs, self.idle_per_repo(), free)
+        picked = pick_jobs(jobs, self.idle_per_repo(), free, self.room_per_repo())
         now = time.time()
         for job in picked:
             waited = queued_seconds(job.get("created_at"), now)
@@ -426,6 +458,8 @@ class Dispatcher:
             f"solo-runner starting: max {cfg.max_concurrent} concurrent, labels {','.join(cfg.runner_labels)},"
             f" every {cfg.poll_interval}s, auth {self.github.auth.kind}"
         )
+        if cfg.config_file:
+            log(f"{cfg.config_file}: settings for {len(cfg.repo_settings)} repo entries")
         os.makedirs(cfg.work_dir, exist_ok=True)
         while not self._stopping.is_set():
             try:
