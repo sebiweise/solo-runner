@@ -10,8 +10,9 @@ FROM ghcr.io/actions/actions-runner:2.338.2
 ARG VERSION=dev
 ARG TARGETARCH
 # GitHub-hosted runners have `docker compose`, the runner image only the CLI
-# and buildx. Bumped by hand (Dependabot cannot see it); checksums from the
-# release's .sha256 files.
+# and buildx. Dependabot cannot see these lines: scripts/update_compose.py
+# bumps them (daily, .github/workflows/update-compose.yml) with the checksums
+# from the release's .sha256 files. Keep the ARG names as they are.
 ARG COMPOSE_VERSION=5.8.0
 ARG COMPOSE_SHA256_AMD64=b8840f5008c447f41fce0a57ae3adeab42c89b1eb6e6012524bcabbfb4ffbaf6
 ARG COMPOSE_SHA256_ARM64=1a9c918b2fb49b9c87f0018c64b5abd0d30715155e98dc939779fbaee6c414d3

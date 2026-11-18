@@ -4,6 +4,8 @@ on:
   pull_request:
   push:
     branches: [main]
+  # update-compose.yml starts CI this way: its pull requests start no workflows.
+  workflow_dispatch:
 
 permissions:
   contents: read
