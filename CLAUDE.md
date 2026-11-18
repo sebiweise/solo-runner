@@ -14,8 +14,9 @@ repos. It polls the GitHub REST API (with ETags) for queued jobs, registers a
 JIT runner for the repo with the oldest matching job, runs it in a free slot
 and cleans up. No webhooks, no inbound port.
 
-Released: v0.1.0 (`ghcr.io/sebiweise/solo-runner:0.1.0`). A real job against
-GitHub has not run with the published image yet; there is no end-to-end test.
+Released: v0.1.0 (`ghcr.io/sebiweise/solo-runner:0.1.0`). An end-to-end test
+(`.github/workflows/e2e.yml`) runs real jobs against a private test repo when
+the `E2E_GITHUB_TOKEN` secret is set; see CONTRIBUTING.md.
 
 ## Layout
 
@@ -29,12 +30,14 @@ solo_runner/            the dispatcher, Python standard library only
   appauth.py            GitHub App JWT: own PEM/DER parser + RS256, no `cryptography`
   log.py                text or JSON lines; passthrough() for the runner's own output
 tests/                  pytest, no network; conftest.py puts the repo on sys.path
+e2e/                    workflow the E2E test dispatches in the test repo
 Dockerfile              ghcr.io/actions/actions-runner + python3, tini, docker compose plugin
 compose.yaml, .env.example   what users copy to their host
 .github/workflows/
   ci.yml                ruff, hadolint, pytest (3.10/3.12/3.13), image build + smoke test, Trivy (report only)
   release.yml           build amd64+arm64, push to GHCR, cosign sign, SBOM, GitHub release + tag
   auto-release.yml      on a merged base-image bump in Dockerfile: release next patch version
+  e2e.yml               real jobs through the image against a private test repo (skipped without secret)
 .github/dependabot.yml  runner base image (daily), GitHub Actions (weekly, grouped)
 ```
 
