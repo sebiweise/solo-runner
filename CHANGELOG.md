@@ -28,6 +28,11 @@ releases.
   runners, job wait time, queued jobs, GitHub API requests, errors and rate
   limit.
 
+### Changed
+
+- The runner's internal trace (`[RUNNER ...]`/`[WORKER ...]` lines, about 3,900
+  per job) is no longer copied to the log; `RUNNER_TRACE=true` turns it back on.
+
 ## [0.1.0] - 2026-11-18
 
 First release, extracted from a homelab setup that ran one shared runner for
