@@ -4,7 +4,14 @@ import threading
 import time
 
 from solo_runner.config import load
-from solo_runner.dispatcher import Dispatcher, filter_repos, job_matches, pick_jobs, prepare_runner_copy
+from solo_runner.dispatcher import (
+    Dispatcher,
+    filter_repos,
+    job_matches,
+    pick_jobs,
+    prepare_runner_copy,
+    runner_env,
+)
 
 
 def make_config(tmp_path, **extra):
@@ -296,3 +303,14 @@ def test_per_repo_limit_and_labels(tmp_path):
     dispatcher.tick()  # me/a is at its limit, its other two jobs wait
     assert len(gh.registered) == 2
     assert wait_until(lambda: dispatcher.active() == 0)
+
+
+def test_runner_trace_is_off_unless_asked_for():
+    # The base image sets ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT=1.
+    base = {"ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT": "1", "PATH": "/usr/bin"}
+    quiet = runner_env(load({"GITHUB_TOKEN": "a"}), base)
+    assert "ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT" not in quiet
+    assert quiet["PATH"] == "/usr/bin"
+    assert base["ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT"] == "1"  # not modified
+    loud = runner_env(load({"GITHUB_TOKEN": "a", "RUNNER_TRACE": "true"}), {})
+    assert loud["ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT"] == "1"

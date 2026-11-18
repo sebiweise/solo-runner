@@ -58,6 +58,7 @@ class Config:
     metrics_port: int = 0  # 0 = no metrics endpoint
     metrics_addr: str = "0.0.0.0"
     log_format: str = "text"
+    runner_trace: bool = False
     api_url: str = "https://api.github.com"
     arch: str = field(default_factory=_arch_label)
     config_file: str = ""
@@ -242,6 +243,7 @@ def load(env=None) -> Config:
     config.log_format = env.get("LOG_FORMAT", "text").strip().lower()
     if config.log_format not in ("text", "json"):
         raise ConfigError(f"LOG_FORMAT must be text or json, got {config.log_format!r}")
+    config.runner_trace = _bool(env, "RUNNER_TRACE", False)
     config.api_url = env.get("GITHUB_API_URL", config.api_url).rstrip("/")
     config.config_file = env.get("CONFIG_FILE", "").strip()
     if config.config_file:

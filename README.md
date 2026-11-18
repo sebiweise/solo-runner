@@ -146,6 +146,7 @@ with the `_FILE` suffix (`GITHUB_TOKEN_FILE`, `GITHUB_APP_PRIVATE_KEY_FILE`).
 | `METRICS_PORT` | – | Serve Prometheus metrics on this port at `/metrics`. Off when unset. See [Monitoring](#monitoring). |
 | `METRICS_ADDR` | `0.0.0.0` | Address the metrics endpoint listens on inside the container. |
 | `LOG_FORMAT` | `text` | `text` or `json` (one object per line, runner output included). |
+| `RUNNER_TRACE` | `false` | Also log the runner's internal trace (`[RUNNER ...]`/`[WORKER ...]` lines, thousands per job). For debugging the runner itself. |
 | `RUNNER_NAME_PREFIX` | `solo-runner` | Runner names are `<prefix>-<repo>-<time>-<slot>`. Give each host its own prefix if several run against the same repos. |
 | `WORK_DIR` | `/srv/solo-runner/work` | Job work directories, one per slot, emptied after every job. |
 | `RUNNER_DIR` | `/home/runner` | Where the runner installation lives (for custom images). |

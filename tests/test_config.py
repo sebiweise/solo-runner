@@ -12,6 +12,7 @@ def test_minimal_pat_config_defaults():
     assert config.labels == []
     assert config.runner_labels[:2] == ["self-hosted", "linux"]
     assert config.allow_public_repos is False
+    assert config.runner_trace is False
     # The secret is gone from the environment the runner will inherit.
     assert "GITHUB_TOKEN" not in env
 
@@ -45,6 +46,7 @@ def test_token_from_file(tmp_path):
         ({"GITHUB_TOKEN": "a", "POLL_INTERVAL": "soon"}, "whole number"),
         ({"GITHUB_TOKEN": "a", "ALLOW_PUBLIC_REPOS": "maybe"}, "true or false"),
         ({"GITHUB_TOKEN": "a", "LOG_FORMAT": "xml"}, "text or json"),
+        ({"GITHUB_TOKEN": "a", "RUNNER_TRACE": "loud"}, "RUNNER_TRACE must be true or false"),
     ],
 )
 def test_invalid(env, message):
