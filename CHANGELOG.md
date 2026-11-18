@@ -8,10 +8,9 @@ releases.
 
 ### Changed
 
-- The README's overview diagram and the Runner Scale Sets proposal diagram are
-  Mermaid diagrams instead of ASCII art, so GitHub renders them. The README
-  starts with a short overview; the step-by-step flow is in the new "How it
-  works" section.
+- New README section "How it works" with a step-by-step Mermaid diagram of
+  one job cycle; the Runner Scale Sets proposal diagram is a Mermaid diagram
+  instead of ASCII art.
 
 ## [0.2.1] - 2026-11-18
 

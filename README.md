@@ -18,15 +18,15 @@ small server. solo-runner turns that around. It watches every repo for queued
 jobs and starts a fresh, single-use runner for whichever job has waited
 longest, never more than `MAX_CONCURRENT` at a time.
 
-```mermaid
-%%{init: {"flowchart": {"rankSpacing": 45, "padding": 8}}}%%
-flowchart LR
-    repos["Your<br>private repos"]
-    sr["solo-runner"]
-    runner["Fresh runner<br>per job"]
-    repos -- "queued jobs" --> sr
-    sr -- "starts" --> runner
-    runner -- "runs the job" --> repos
+```
+          GitHub                                   your server (outbound HTTPS only)
+ ┌──────────────────────┐                     ┌──────────────────────────────────────┐
+ │ repo-a  job queued ──┼──── poll (ETag) ───►│ solo-runner                          │
+ │ repo-b  job queued   │                     │  1. oldest matching job: repo-a      │
+ │ repo-c  (idle)       │◄─ generate-jitconfig│  2. just-in-time runner for repo-a   │
+ │                      │◄──── runs job ──────│  3. runner takes 1 job, then exits   │
+ └──────────────────────┘                     │  4. clean up, next job (repo-b)      │
+                                              └──────────────────────────────────────┘
 ```
 
 The step-by-step flow is in [How it works](#how-it-works).
