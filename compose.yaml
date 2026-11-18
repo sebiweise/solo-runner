@@ -3,7 +3,7 @@
 # Read the "Security" section of README.md before enabling Docker for jobs.
 services:
   solo-runner:
-    image: ghcr.io/sebiweise/solo-runner:0.1
+    image: ghcr.io/sebiweise/solo-runner:0.2
     restart: unless-stopped
     # A stop kills a running job; this is only enough to remove idle runners.
     stop_grace_period: 30s
