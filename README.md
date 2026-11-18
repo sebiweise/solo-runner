@@ -299,7 +299,7 @@ image and copy the dispatcher in:
 
 ```dockerfile
 FROM your/runner-image:tag
-COPY --from=ghcr.io/sebiweise/solo-runner:0.1 /opt/solo-runner /opt/solo-runner
+COPY --from=ghcr.io/sebiweise/solo-runner:0.2 /opt/solo-runner /opt/solo-runner
 ENV PYTHONPATH=/opt/solo-runner RUNNER_DIR=/actions-runner
 ENTRYPOINT ["python3", "-m", "solo_runner"]
 ```
