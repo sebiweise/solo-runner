@@ -17,6 +17,7 @@ releases.
 - The docker compose plugin in the image is kept current: a daily workflow opens
   a pull request for each new compose release, and a merged bump is released as
   the next patch version, like runner base image bumps.
+- SonarCloud analysis, with its Quality Gate badge in the README.
 - Optional `CONFIG_FILE` (YAML) with settings per repo: `labels` and
   `max_concurrent`, for single repos or glob patterns. The environment stays
   the default for everything the file leaves out.

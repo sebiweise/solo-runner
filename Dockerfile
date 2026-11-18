@@ -29,7 +29,9 @@ RUN apt-get update \
          arm64) arch=aarch64 sum="$COMPOSE_SHA256_ARM64" ;; \
          *) echo "unsupported architecture: $TARGETARCH" >&2; exit 1 ;; \
        esac \
-    && curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-compose \
+    # --proto =https: GitHub redirects release downloads to another host, and
+    # curl must not follow a redirect to plain HTTP.
+    && curl --proto '=https' --tlsv1.2 -fsSL -o /usr/local/lib/docker/cli-plugins/docker-compose \
        "https://github.com/docker/compose/releases/download/v${COMPOSE_VERSION}/docker-compose-linux-${arch}" \
     && echo "${sum}  /usr/local/lib/docker/cli-plugins/docker-compose" | sha256sum -c - \
     && chmod 755 /usr/local/lib/docker/cli-plugins/docker-compose \
