@@ -6,6 +6,13 @@ releases.
 
 ## [Unreleased]
 
+### Added
+
+- Issue forms (bug report, feature request), a pull request template and
+  README badges.
+- Ruleset for `main` and a maintainer guide to set it up
+  (`docs/maintainers/branch-protection.md`).
+
 ## [0.1.0] - 2026-11-18
 
 First release, extracted from a homelab setup that ran one shared runner for
