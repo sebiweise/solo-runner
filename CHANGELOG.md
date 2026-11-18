@@ -6,6 +6,10 @@ releases.
 
 ## [Unreleased]
 
+### Changed
+
+- `compose.yaml` and the README's custom image example use the `0.2` image.
+
 ## [0.2.0] - 2026-11-18
 
 ### Added
