@@ -19,10 +19,13 @@ ARG COMPOSE_SHA256_ARM64=1a9c918b2fb49b9c87f0018c64b5abd0d30715155e98dc939779fba
 
 USER 0
 # python3 runs the dispatcher (standard library only); tini reaps whatever
-# processes a job leaves behind and forwards SIGTERM.
+# processes a job leaves behind and forwards SIGTERM. libatomic1 is on
+# GitHub-hosted runners but not in the runner image, and the Node binaries
+# that actions/setup-node and pnpm/action-setup install need it
+# (libatomic.so.1, exit code 127 without it).
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 tini ca-certificates \
+    && apt-get install -y --no-install-recommends python3 tini ca-certificates libatomic1 \
     && rm -rf /var/lib/apt/lists/* \
     && case "${TARGETARCH:-amd64}" in \
          amd64) arch=x86_64 sum="$COMPOSE_SHA256_AMD64" ;; \
