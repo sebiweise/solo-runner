@@ -1,9 +1,10 @@
-name: Update compose plugin
+name: Update tools
 
-# Dependabot only sees the FROM line, not the docker compose plugin the
-# Dockerfile downloads, so this does the same for it: look for a new release
-# every day and open a pull request with the version and checksums. A merged
-# bump is released as the next patch version by auto-release.yml.
+# Dependabot only sees the FROM line, not the docker compose plugin and the
+# GitHub CLI the Dockerfile downloads, so this does the same for them: look for
+# a new release every day and open a pull request per tool with the version and
+# checksums. A merged bump is released as the next patch version by
+# auto-release.yml.
 on:
   schedule:
     - cron: "37 5 * * *"
@@ -12,12 +13,21 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: update-compose
-
 jobs:
   update:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - tool: compose
+            title: docker compose plugin
+            repo: docker/compose
+          - tool: gh
+            title: GitHub CLI
+            repo: cli/cli
+    concurrency:
+      group: update-tools-${{ matrix.tool }}
     permissions:
       contents: write # push the branch
       pull-requests: write # open the pull request, close superseded ones
@@ -27,15 +37,19 @@ jobs:
       - id: bump
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: python3 scripts/update_compose.py >> "$GITHUB_OUTPUT"
+          TOOL: ${{ matrix.tool }}
+        run: python3 scripts/update_tools.py --tool "$TOOL" >> "$GITHUB_OUTPUT"
       - name: Pull request
         if: steps.bump.outputs.version != ''
         env:
           GH_TOKEN: ${{ github.token }}
           PREVIOUS: ${{ steps.bump.outputs.previous }}
           VERSION: ${{ steps.bump.outputs.version }}
+          TOOL: ${{ matrix.tool }}
+          TITLE: ${{ matrix.title }}
+          REPO: ${{ matrix.repo }}
         run: |
-          branch="deps/compose-v${VERSION}"
+          branch="deps/${TOOL}-v${VERSION}"
           if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
             # Delete the branch to have it opened again.
             echo "$branch already exists, nothing to do"; exit 0
@@ -43,18 +57,18 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$branch"
-          git commit -am "deps(compose): bump docker compose plugin from ${PREVIOUS} to ${VERSION}"
+          git commit -am "deps(${TOOL}): bump ${TITLE} from ${PREVIOUS} to ${VERSION}"
           git push origin "$branch"
 
           url=$(gh pr create --base main --head "$branch" \
-            --title "deps(compose): bump docker compose plugin from ${PREVIOUS} to ${VERSION}" \
-            --body "Bumps the docker compose plugin in the image from ${PREVIOUS} to ${VERSION}, with the checksums from the release's \`.sha256\` files.
+            --title "deps(${TOOL}): bump ${TITLE} from ${PREVIOUS} to ${VERSION}" \
+            --body "Bumps the ${TITLE} in the image from ${PREVIOUS} to ${VERSION}, with the checksums from the release's checksum files.
 
-          Release notes: https://github.com/docker/compose/releases/tag/v${VERSION}
+          Release notes: https://github.com/${REPO}/releases/tag/v${VERSION}
 
           Merging releases the image as the next patch version (auto-release.yml).
 
-          _Opened by update-compose.yml._")
+          _Opened by update-tools.yml._")
           echo "opened $url"
 
           # Pull requests and pushes made with GITHUB_TOKEN start no workflows,
@@ -64,7 +78,7 @@ jobs:
 
           # Like Dependabot: an older bump that is still open is superseded.
           gh pr list --state open --base main --json number,headRefName \
-            --jq ".[] | select(.headRefName | startswith(\"deps/compose-v\")) | select(.headRefName != \"$branch\") | .number" |
+            --jq ".[] | select(.headRefName | startswith(\"deps/${TOOL}-v\")) | select(.headRefName != \"$branch\") | .number" |
           while read -r number; do
             gh pr close "$number" --delete-branch --comment "Superseded by $url."
           done

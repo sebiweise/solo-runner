@@ -2,8 +2,8 @@ name: Auto release
 
 # GitHub stops handing jobs to runners that are too old, so every merged bump
 # of the runner base image is published right away as the next patch version.
-# Bumps of the docker compose plugin (update-compose.yml) are released the
-# same way, so the image never lags behind what it was tested with.
+# Bumps of the docker compose plugin and the GitHub CLI (update-tools.yml) are
+# released the same way, so the image never lags behind what it was tested with.
 on:
   push:
     branches: [main]
@@ -23,11 +23,11 @@ jobs:
           fetch-depth: 0
       - id: next
         run: |
-          pinned='^(FROM |ARG COMPOSE_VERSION=)'
+          pinned='^(FROM |ARG COMPOSE_VERSION=|ARG GH_VERSION=)'
           before=$(git show HEAD^:Dockerfile | grep -E "$pinned" || true)
           after=$(grep -E "$pinned" Dockerfile)
           if [ "$before" = "$after" ]; then
-            echo "base image and compose plugin unchanged, nothing to release"; exit 0
+            echo "base image, compose plugin and gh unchanged, nothing to release"; exit 0
           fi
           last=$(git tag --list 'v*.*.*' --sort=-v:refname | head -1)
           if [ -z "$last" ]; then

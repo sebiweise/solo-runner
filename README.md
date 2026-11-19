@@ -236,7 +236,8 @@ session.
 ## Jobs that use Docker
 
 Many workflows run `docker build`, `docker run`, `docker compose` or use
-`services:`. The image contains the Docker CLI, buildx and the compose plugin;
+`services:`. The image contains the Docker CLI, buildx and the compose plugin
+(and the GitHub CLI `gh`, as on GitHub-hosted runners);
 to use the host's daemon:
 
 ```yaml
@@ -300,7 +301,7 @@ Example alerts: `time() - solo_runner_last_scan_timestamp_seconds > 600`
 ## Bring your own runner image
 
 The bundled image is the official `ghcr.io/actions/actions-runner` plus
-Python and the Docker compose plugin. Like that image, it has far fewer tools
+Python, the Docker compose plugin and the GitHub CLI (`gh`). Like that image, it has far fewer tools
 than GitHub's hosted runners: install what a job needs in the workflow
 (`sudo apt-get install -y ...` or a `setup-*` action), so it keeps working on
 `ubuntu-latest` too. If your jobs need more preinstalled tools, build on another runner

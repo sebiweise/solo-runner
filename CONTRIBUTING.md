@@ -54,7 +54,7 @@ Maintainers run the *Release* workflow (`release.yml`) from the Actions tab
 with the version (`X.Y.Z`, no leading `v`). It builds and signs the image and
 creates the GitHub release together with the tag `vX.Y.Z`; nobody pushes tags
 by hand. Runner base image bumps from Dependabot and docker compose plugin
-bumps from `update-compose.yml` are released automatically as the next patch
+and GitHub CLI bumps from `update-tools.yml` are released automatically as the next patch
 version. Add a line to `CHANGELOG.md` with every user-visible change.
 
 `main` is protected by a ruleset (pull request and green CI required); see
