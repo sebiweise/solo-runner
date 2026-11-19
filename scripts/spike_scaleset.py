@@ -34,6 +34,7 @@ REPO = os.environ["E2E_REPO"]
 NAME = os.environ["NAME"]
 WORKFLOW = os.environ.get("E2E_WORKFLOW", "solo-runner-e2e.yml")
 IMAGE = os.environ.get("RUNNER_IMAGE", "ghcr.io/actions/actions-runner:latest")
+EXTRA_LABELS = [x for x in os.environ.get("EXTRA_LABELS", "self-hosted").split(",") if x]
 SECRET_KEYS = {"token", "messageQueueAccessToken", "encodedJITConfig"}
 
 T0 = time.monotonic()
@@ -121,7 +122,9 @@ class Actions:
             {
                 "name": NAME,
                 "runnerGroupId": group_id,
-                "labels": [{"name": NAME, "type": "System"}],
+                # Run 1 with only [NAME]: a job asking for [self-hosted, NAME] was
+                # never offered. So the scale set carries self-hosted itself.
+                "labels": [{"name": label, "type": "System"} for label in [NAME, *EXTRA_LABELS]],
                 "RunnerSetting": {"disableUpdate": True},
             },
         )
