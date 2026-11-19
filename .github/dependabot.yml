@@ -12,8 +12,14 @@ updates:
     directory: /
     schedule:
       interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    cooldown:
+      default-days: 7
+    labels: [dependencies]
     groups:
-      actions:
+      github-actions:
         patterns: ["*"]
     commit-message:
       prefix: "deps(ci)"
