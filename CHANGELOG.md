@@ -6,6 +6,12 @@ releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- The image includes `libatomic1`. Without it, Node from `actions/setup-node`
+  and pnpm from `pnpm/action-setup` failed with "libatomic.so.1: cannot open
+  shared object file" (exit code 127).
+
 ### Added
 
 - A logo (`docs/assets/logo.svg`) and a README banner with light and dark
