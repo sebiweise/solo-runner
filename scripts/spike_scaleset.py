@@ -85,6 +85,11 @@ class Actions:
     """The Actions service side: admin connection, scale set, sessions."""
 
     def __init__(self):
+        self.connect()
+        self.scale_set = None
+        self.session = None
+
+    def connect(self):
         status, reg = gh("POST", f"/repos/{REPO}/actions/runners/registration-token")
         emit("registration-token", status=status)
         assert status == 201, reg
@@ -104,13 +109,26 @@ class Actions:
         assert 200 <= status < 300, redact(conn)
         self.base = conn["url"].rstrip("/")
         self.admin = conn["token"]
-        self.scale_set = None
-        self.session = None
+        self.admin_at = time.monotonic()
 
     def call(self, method, path, body=None, bearer=None, timeout=30):
         sep = "&" if "?" in path else "?"
         url = f"{self.base}/{path.lstrip('/')}{sep}api-version=6.0-preview"
-        return http(method, url, body, {"Authorization": f"Bearer {bearer or self.admin}"}, timeout)
+        status, result = http(method, url, body, {"Authorization": f"Bearer {bearer or self.admin}"}, timeout)
+        if status == 401 and bearer is None:
+            # Run 3: the admin token expired after ~20 min (401, PublicAccess).
+            emit("admin-token-expired", age=round(time.monotonic() - self.admin_at))
+            self.connect()
+            status, result = http(method, url, body, {"Authorization": f"Bearer {self.admin}"}, timeout)
+        return status, result
+
+    def remove_leftovers(self):
+        """Scale sets of earlier spike runs (run 3 could not delete its own)."""
+        status, sets = self.call("GET", "_apis/runtime/runnerscalesets?runnerGroupId=1")
+        for item in (sets or {}).get("value", []) if status == 200 else []:
+            if item.get("name", "").startswith("spike-"):
+                s2, _ = self.call("DELETE", f"_apis/runtime/runnerscalesets/{item['id']}")
+                emit("leftover-deleted", name=item["name"], status=s2)
 
     def create_scale_set(self):
         status, groups = self.call("GET", "_apis/runtime/runnergroups/?groupName=default")
@@ -263,47 +281,50 @@ def rest_jobs(run_id):
 
 
 def main():
-    # Run 2 showed: with labels [NAME, self-hosted] GitHub assigns the jobs to
-    # the scale set straight away (JobAssigned, totalAssignedJobs), with no
-    # JobAvailable and no acquire step. So this run asks about assignment:
-    #   A capacity 0: are jobs held back while the host has no free slot?
-    #   B capacity 1: is only one job assigned? With no runner started, when
-    #     and how often is the assignment taken back (requeue)?
+    # Run 2: with labels [NAME, self-hosted] GitHub assigns jobs to the scale
+    # set straight away (JobAssigned), no JobAvailable/acquire step.
+    # Run 3: capacity 0 holds jobs back; capacity 1 right after assigned
+    # nothing in 13 min; capacity 2 assigned both after ~4.5 min. Unclear
+    # whether that is capacity or a backoff, so this run:
+    #   B capacity 1 from the start: is one of the two jobs assigned?
+    #   D capacity 2, no runner: when is an assignment taken back (requeue)?
     #   C capacity 2: JIT runners from the scale set run the assigned jobs.
     actions = Actions()
     run_id = None
     runners = []
     try:
+        actions.remove_leftovers()
         actions.create_scale_set()
         actions.open_session(f"{NAME}-a")
         state = {}
         run_id = dispatch()
-
-        mark = 0
+        peak = {}
 
         def since(m):
             return state.get("seen", [])[m:]
 
-        listen(actions, 90, 0, state)
-        findings["A capacity 0: messages"] = since(mark)
+        def track(phase):
+            def inner(stats):
+                peak[phase] = max(peak.get(phase, 0), stats.get("totalAssignedJobs", 0))
+
+            return inner
+
+        listen(actions, 360, 1, state, track("B"))
+        findings["B capacity 1 from start: max totalAssignedJobs"] = peak.get("B", 0)
+        findings["B messages"] = since(0)
         rest_jobs(run_id)
 
         mark = len(state.get("seen", []))
-        peak = {"assigned": 0}
-
-        def track(stats):
-            peak["assigned"] = max(peak["assigned"], stats.get("totalAssignedJobs", 0))
-
-        listen(actions, 780, 1, state, track)
-        findings["B capacity 1: max totalAssignedJobs"] = peak["assigned"]
-        findings["B capacity 1, no runner: messages (t, type, job, result)"] = since(mark)
+        listen(actions, 540, 2, state, track("D"))
+        findings["D capacity 2, no runner: max totalAssignedJobs"] = peak.get("D", 0)
+        findings["D messages (t, type, job, result)"] = since(mark)
         rest_jobs(run_id)
 
         mark = len(state.get("seen", []))
 
         def scale(stats):
             # Like the dockerscaleset example: as many runners as assigned jobs.
-            wanted = stats.get("totalAssignedJobs", 0) - stats.get("totalRegisteredRunners", 0)
+            wanted = stats.get("totalAssignedJobs", 0) - len(runners)
             for _ in range(max(0, wanted)):
                 name = f"{NAME}-{len(runners) + 1}"
                 cfg = actions.jit(name)
@@ -317,6 +338,7 @@ def main():
                 runners.append((proc, log))
                 emit("runner-started", name=name)
 
+        scale({"totalAssignedJobs": peak.get("D", 0)})
         listen(actions, 420, 2, state, scale)
         findings["C capacity 2 with runners: messages"] = since(mark)
         findings["C runners started"] = len(runners)
