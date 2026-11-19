@@ -34,13 +34,13 @@ solo_runner/            the dispatcher, Python standard library only
   metrics.py            optional Prometheus /metrics on METRICS_PORT; every metric is declared in DEFINITIONS
 tests/                  pytest, no network; conftest.py puts the repo on sys.path
 e2e/                    workflow the E2E test dispatches in the test repo
-Dockerfile              ghcr.io/actions/actions-runner + python3, tini, docker compose plugin
+Dockerfile              ghcr.io/actions/actions-runner + python3, tini, libatomic1, docker compose plugin, gh
 compose.yaml, .env.example   what users copy to their host
 .github/workflows/
   ci.yml                ruff, hadolint, pytest (3.10/3.12/3.13), image build + smoke test, Trivy (report only)
   release.yml           build amd64+arm64, push to GHCR, cosign sign, SBOM, GitHub release + tag
-  auto-release.yml      on a merged base-image or compose bump in Dockerfile: release next patch version
-  update-compose.yml    daily: pull request for a new docker compose plugin release
+  auto-release.yml      on a merged base-image, compose or gh bump in Dockerfile: release next patch version
+  update-tools.yml      daily: pull request for a new docker compose plugin or gh release
   e2e.yml               real jobs through the image against a private test repo (skipped without secret)
 .github/dependabot.yml  runner base image (daily), GitHub Actions (weekly, grouped)
 ```
@@ -138,8 +138,9 @@ update `CHANGELOG.md` or `__version__`; the image version comes from the
 `VERSION` build argument (`SOLO_RUNNER_VERSION` at runtime, used in the
 User-Agent).
 
-The docker compose plugin version in the `Dockerfile` (`COMPOSE_VERSION` and
-its SHA-256 sums) is not seen by Dependabot. `update-compose.yml` (daily, via
-`scripts/update_compose.py`) opens a `deps/compose-vX.Y.Z` pull request for
-each new release, and `auto-release.yml` releases a merged bump as the next
-patch version too.
+The docker compose plugin and GitHub CLI versions in the `Dockerfile`
+(`COMPOSE_VERSION`, `GH_VERSION` and their SHA-256 sums) are not seen by
+Dependabot. `update-tools.yml` (daily, one matrix job per tool, via
+`scripts/update_tools.py --tool compose|gh`) opens a `deps/compose-vX.Y.Z` or
+`deps/gh-vX.Y.Z` pull request for each new release, and `auto-release.yml`
+releases a merged bump as the next patch version too.

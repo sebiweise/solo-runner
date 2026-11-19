@@ -10,12 +10,17 @@ FROM ghcr.io/actions/actions-runner:2.338.2
 ARG VERSION=dev
 ARG TARGETARCH
 # GitHub-hosted runners have `docker compose`, the runner image only the CLI
-# and buildx. Dependabot cannot see these lines: scripts/update_compose.py
-# bumps them (daily, .github/workflows/update-compose.yml) with the checksums
-# from the release's .sha256 files. Keep the ARG names as they are.
+# and buildx. Likewise they have the GitHub CLI (`gh`), which many workflows
+# call for releases and API queries, and the runner image does not.
+# Dependabot cannot see these lines: scripts/update_tools.py bumps them (daily,
+# .github/workflows/update-tools.yml) with the checksums from the releases'
+# checksum files. Keep the ARG names as they are.
 ARG COMPOSE_VERSION=5.8.0
 ARG COMPOSE_SHA256_AMD64=b8840f5008c447f41fce0a57ae3adeab42c89b1eb6e6012524bcabbfb4ffbaf6
 ARG COMPOSE_SHA256_ARM64=1a9c918b2fb49b9c87f0018c64b5abd0d30715155e98dc939779fbaee6c414d3
+ARG GH_VERSION=2.105.0
+ARG GH_SHA256_AMD64=79e7ab5db738c48777b696e374f8b428f0647debfb424f44d2f426370407fe2f
+ARG GH_SHA256_ARM64=b1278c75107423d818f1937fd92cafc9e5e9b606631568f68d7fb816f5885a02
 
 USER 0
 # python3 runs the dispatcher (standard library only); tini reaps whatever
@@ -28,8 +33,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 tini ca-certificates libatomic1 \
     && rm -rf /var/lib/apt/lists/* \
     && case "${TARGETARCH:-amd64}" in \
-         amd64) arch=x86_64 sum="$COMPOSE_SHA256_AMD64" ;; \
-         arm64) arch=aarch64 sum="$COMPOSE_SHA256_ARM64" ;; \
+         amd64) arch=x86_64 sum="$COMPOSE_SHA256_AMD64" gh_arch=amd64 gh_sum="$GH_SHA256_AMD64" ;; \
+         arm64) arch=aarch64 sum="$COMPOSE_SHA256_ARM64" gh_arch=arm64 gh_sum="$GH_SHA256_ARM64" ;; \
          *) echo "unsupported architecture: $TARGETARCH" >&2; exit 1 ;; \
        esac \
     # --proto =https: GitHub redirects release downloads to another host, and
@@ -38,6 +43,14 @@ RUN apt-get update \
        "https://github.com/docker/compose/releases/download/v${COMPOSE_VERSION}/docker-compose-linux-${arch}" \
     && echo "${sum}  /usr/local/lib/docker/cli-plugins/docker-compose" | sha256sum -c - \
     && chmod 755 /usr/local/lib/docker/cli-plugins/docker-compose \
+    # Only the binary: the tarball also holds man pages and completions.
+    && gh_tar="gh_${GH_VERSION}_linux_${gh_arch}.tar.gz" \
+    && curl --proto '=https' --tlsv1.2 -fsSL -o "/tmp/${gh_tar}" \
+       "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${gh_tar}" \
+    && echo "${gh_sum}  /tmp/${gh_tar}" | sha256sum -c - \
+    && tar -xzf "/tmp/${gh_tar}" -C /usr/local/bin --strip-components=2 "gh_${GH_VERSION}_linux_${gh_arch}/bin/gh" \
+    && rm "/tmp/${gh_tar}" \
+    && gh --version \
     && install -d -o 1001 -g 1001 /opt/hostedtoolcache /srv/solo-runner/work \
     # The Kubernetes container hooks are for actions-runner-controller only;
     # without them the image carries fewer Node packages to keep patched.

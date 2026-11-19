@@ -6,6 +6,13 @@ releases.
 
 ## [Unreleased]
 
+### Added
+
+- The image includes the GitHub CLI (`gh`, 2.105.0), as GitHub-hosted runners
+  do. Workflows that call `gh release`, `gh api` or `gh run` failed with
+  "gh: command not found". `update-tools.yml` (formerly `update-compose.yml`)
+  opens a pull request for each new `gh` release, like for the compose plugin.
+
 ## [0.2.2] - 2026-11-19
 
 ### Fixed
