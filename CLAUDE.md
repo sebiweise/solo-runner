@@ -114,8 +114,8 @@ ruff format --check .
   ports, new dependencies of the image) are proposed to the maintainer first,
   before building them.
 - **Commits**: no `Co-Authored-By` lines.
-- **Pinned actions**: workflow actions are pinned to a full commit SHA with the
-  version in a comment; keep that for new steps.
+- **Action versions**: workflow actions use version tags (major tag, e.g.
+  `@v7`, where the action publishes one); keep that for new steps.
 
 ## Release process
 
