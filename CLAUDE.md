@@ -113,7 +113,6 @@ ruff format --check .
 - **Bigger design decisions** (new modes, new files users must write, new
   ports, new dependencies of the image) are proposed to the maintainer first,
   before building them.
-- **Commits**: no `Co-Authored-By` lines.
 - **Action versions**: workflow actions use version tags (major tag, e.g.
   `@v7`, where the action publishes one); keep that for new steps.
 
