@@ -204,32 +204,35 @@ class Actions:
         emit("scale-set-deleted", status=status, body=redact(body))
 
 
-def listen(actions, seconds, capacity, state, on_available=None):
-    """Poll for `seconds`, log every job message, call on_available(msg)."""
+def listen(actions, seconds, capacity, state, on_message=None):
+    """Poll for `seconds` with X-ScaleSetMaxCapacity=capacity, log every job
+    message and call on_message(statistics) after each message."""
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         msg = actions.poll(state.get("last"), capacity)
         if msg is None:
-            emit("poll-empty")
+            emit("poll-empty", capacity=capacity)
             continue
         state["last"] = msg["messageId"]
         jobs = json.loads(msg["body"]) if msg.get("body") else []
-        emit("message", id=msg["messageId"], type=msg.get("messageType"), statistics=msg.get("statistics"))
+        stats = msg.get("statistics") or {}
+        emit("message", id=msg["messageId"], capacity=capacity, statistics=stats)
         for job in jobs:
             kind = job.get("messageType")
             emit(
                 kind,
-                request=job.get("runnerRequestId"),
                 job=job.get("jobDisplayName"),
                 labels=job.get("requestLabels"),
                 result=job.get("result"),
                 runner=job.get("runnerName"),
-                run=job.get("workflowRunId"),
+                job_id=job.get("jobId"),
             )
-            state.setdefault("seen", []).append((round(time.monotonic() - T0, 1), kind, job.get("runnerRequestId")))
-            if kind == "JobAvailable" and on_available:
-                on_available(job)
+            state.setdefault("seen", []).append(
+                (round(time.monotonic() - T0, 1), kind, job.get("jobDisplayName"), job.get("result"))
+            )
         actions.ack(msg["messageId"])
+        if on_message:
+            on_message(stats)
 
 
 def dispatch():
@@ -260,6 +263,13 @@ def rest_jobs(run_id):
 
 
 def main():
+    # Run 2 showed: with labels [NAME, self-hosted] GitHub assigns the jobs to
+    # the scale set straight away (JobAssigned, totalAssignedJobs), with no
+    # JobAvailable and no acquire step. So this run asks about assignment:
+    #   A capacity 0: are jobs held back while the host has no free slot?
+    #   B capacity 1: is only one job assigned? With no runner started, when
+    #     and how often is the assignment taken back (requeue)?
+    #   C capacity 2: JIT runners from the scale set run the assigned jobs.
     actions = Actions()
     run_id = None
     runners = []
@@ -267,72 +277,50 @@ def main():
         actions.create_scale_set()
         actions.open_session(f"{NAME}-a")
         state = {}
-        # Initial statistics come with the session itself.
         run_id = dispatch()
 
-        # --- Q3 + Q1: listen, acknowledge, never acquire --------------------
-        offered = {}
+        mark = 0
 
-        def note(job):
-            offered.setdefault(job["runnerRequestId"], []).append(round(time.monotonic() - T0, 1))
+        def since(m):
+            return state.get("seen", [])[m:]
 
-        listen(actions, 150, 2, state, note)
-        findings["Q3 [self-hosted, name] offered"] = bool(offered)
-        rest_jobs(run_id)
-        if not offered:
-            findings["Q3 note"] = "no JobAvailable within 150 s: [self-hosted, <name>] does not reach the scale set"
-            return
-        first = dict(offered)
-        listen(actions, 300, 2, state, note)
-        findings["Q1 re-offered in same session"] = {rid: times for rid, times in offered.items() if len(times) > 1}
-        actions.close_session()
-        actions.open_session(f"{NAME}-b")
-        state = {}
-        before = {rid: len(times) for rid, times in offered.items()}
-        listen(actions, 120, 2, state, note)
-        findings["Q1 re-offered after new session"] = [rid for rid in offered if len(offered[rid]) > before.get(rid, 0)]
+        listen(actions, 90, 0, state)
+        findings["A capacity 0: messages"] = since(mark)
         rest_jobs(run_id)
 
-        # --- Q2: acquire one job, start no runner ---------------------------
-        target = sorted(first)[0]
-        got = actions.acquire([target])
-        findings["Q2 acquire of an earlier offer"] = {"asked": target, "got": got}
-        if not got:
-            # Not acquirable any more: take the next fresh offer instead.
-            fresh = []
-            listen(actions, 120, 2, state, lambda job: fresh.append(job["runnerRequestId"]))
-            if fresh:
-                target = fresh[0]
-                got = actions.acquire([target])
-        acquired_at = time.monotonic() - T0
-        findings["Q2 acquired"] = {"request": target, "got": got, "at": round(acquired_at, 1)}
         mark = len(state.get("seen", []))
-        listen(actions, 720, 2, state, None)
-        later = [s for s in state.get("seen", [])[mark:] if s[2] == target or s[1] == "JobAvailable"]
-        findings["Q2 messages after acquire (t, type, request)"] = later
+        peak = {"assigned": 0}
+
+        def track(stats):
+            peak["assigned"] = max(peak["assigned"], stats.get("totalAssignedJobs", 0))
+
+        listen(actions, 780, 1, state, track)
+        findings["B capacity 1: max totalAssignedJobs"] = peak["assigned"]
+        findings["B capacity 1, no runner: messages (t, type, job, result)"] = since(mark)
         rest_jobs(run_id)
 
-        # --- end to end: acquire every offer and run a JIT runner for it ---
-        def take(job):
-            rid = job["runnerRequestId"]
-            if not actions.acquire([rid]):
-                return
-            name = f"{NAME}-{len(runners) + 1}"
-            cfg = actions.jit(name)
-            log = open(f"runner-{len(runners) + 1}.log", "w")  # noqa: SIM115 - closed with the process below
-            proc = subprocess.Popen(
-                ["docker", "run", "--rm", "-e", "JIT", IMAGE, "sh", "-c", './run.sh --jitconfig "$JIT"'],
-                env={**os.environ, "JIT": cfg},
-                stdout=log,
-                stderr=subprocess.STDOUT,
-            )
-            runners.append((proc, log))
-            emit("runner-started", name=name, request=rid)
+        mark = len(state.get("seen", []))
 
-        listen(actions, 480, 2, state, take)
-        jobs = rest_jobs(run_id)
-        findings["end to end"] = jobs
-        findings["messages total"] = [s[1] for s in state.get("seen", [])]
+        def scale(stats):
+            # Like the dockerscaleset example: as many runners as assigned jobs.
+            wanted = stats.get("totalAssignedJobs", 0) - stats.get("totalRegisteredRunners", 0)
+            for _ in range(max(0, wanted)):
+                name = f"{NAME}-{len(runners) + 1}"
+                cfg = actions.jit(name)
+                log = open(f"runner-{len(runners) + 1}.log", "w")  # noqa: SIM115 - closed with the process below
+                proc = subprocess.Popen(
+                    ["docker", "run", "--rm", "-e", "JIT", IMAGE, "sh", "-c", './run.sh --jitconfig "$JIT"'],
+                    env={**os.environ, "JIT": cfg},
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                )
+                runners.append((proc, log))
+                emit("runner-started", name=name)
+
+        listen(actions, 420, 2, state, scale)
+        findings["C capacity 2 with runners: messages"] = since(mark)
+        findings["C runners started"] = len(runners)
+        findings["C REST jobs"] = rest_jobs(run_id)
     finally:
         for proc, log in runners:
             try:
