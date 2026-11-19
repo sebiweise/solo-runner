@@ -6,6 +6,8 @@ releases.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-19
+
 ### Fixed
 
 - The image includes `libatomic1`. Without it, Node from `actions/setup-node`
