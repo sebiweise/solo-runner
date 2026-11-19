@@ -46,5 +46,5 @@ jobs:
             if [ -n "${!name:-}" ]; then echo "::error::$name is set in the job"; exit 1; fi
           done
       # A JavaScript action: the runner's bundled Node works.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7
       - run: test -f .github/workflows/solo-runner-e2e.yml
