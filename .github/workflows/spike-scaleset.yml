@@ -1,0 +1,32 @@
+name: Spike scale sets
+
+# Runs scripts/spike_scaleset.py against the end-to-end test repo (about
+# 25 minutes); its results are in docs/proposals/runner-scale-sets.md. By hand
+# only (Actions -> Spike scale sets -> Run workflow), to repeat the spike
+# when GitHub's side changes.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e
+
+jobs:
+  spike:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v7
+      - name: Spike
+        env:
+          GH_TOKEN: ${{ secrets.E2E_GITHUB_TOKEN }}
+          E2E_REPO: ${{ vars.E2E_REPO || format('{0}/solo-runner-e2e', github.repository_owner) }}
+          NAME: spike-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then echo "::notice::E2E_GITHUB_TOKEN not available, spike skipped"; exit 0; fi
+          python3 scripts/spike_scaleset.py
+      - name: Runner logs
+        if: always()
+        run: tail -n 40 runner-*.log 2>/dev/null || true
