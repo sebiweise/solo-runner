@@ -2,9 +2,10 @@
 
 Status: **proposal, not built.** Written 2026-11-17 against
 [`actions/scaleset`](https://github.com/actions/scaleset) at `716908e`
-(2026-11-07, "Public Preview") and solo-runner 0.1.0. Spike run on
-2026-11-19; see [Spike results](#spike-results-2026-11-19), which change parts
-of the design below (there is no acquire step any more).
+(2026-11-07, "Public Preview") and solo-runner 0.1.0. Spikes run on
+2026-11-19/20; see [Spike results](#spike-results-2026-11-19) and the
+[revised design](#revised-design-after-both-spikes), which replace parts of the
+design below (there is no acquire step any more).
 
 ## Summary
 
@@ -221,12 +222,55 @@ the end of a job.
 - Each served repo needs a long-lived session and an admin token renewed every
   ~15 minutes; tokens and sessions stay per repo.
 
-**Recommendation after the spike.** The mode is feasible on a personal account
-and solves multi-host cleanly, but the global oldest-first limit has to be
-redesigned around assignment instead of acquisition. Next step, if wanted: a
-second, short spike with two scale sets (two repos or two hosts) to see how
-GitHub spreads jobs and whether capacity changes apply at once, then an
-updated design before any code in `solo_runner/`.
+### Spike 2: two hosts on one repo (2026-11-20)
+
+[`scripts/spike_scaleset_hosts.py`](../../scripts/spike_scaleset_hosts.py)
+(workflow `spike-scaleset-hosts.yml`) created two scale sets in the test repo,
+`<label>-a` and `<label>-b`, both with the labels `<label>` and `self-hosted`,
+each with its own session, as two hosts would have them.
+
+- **Two sets may carry the same labels**, and every job went to exactly one of
+  them. No job ran twice and no runner was started without a job.
+- **A raised capacity applies with the next long poll.** Host A went from 0 to
+  1 and got a job 40 s later; host B's raise was not seen before its running
+  poll (sent with capacity 0) ended. So the delay is at most one poll (~50 s),
+  not GitHub's 5-minute cycle. Run 3's 13 minutes did not happen again.
+- **A host that frees a slot is preferred over one that has not reported its
+  capacity yet:** A finished its first job and got the second one at once.
+- **Failover works.** Host A held both jobs with capacity 2 but started no
+  runner; host B reported capacity 2. When GitHub took the jobs back from A
+  after 300 s, both went to B within a second, and B's runners ran them
+  successfully.
+
+## Revised design (after both spikes)
+
+The design in "How it would map onto a personal account" assumed an acquire
+step that no longer exists. What changes:
+
+- **One scale set per repo and host.** Name `RUNNER_NAME_PREFIX` (already
+  unique per host when several hosts are used), labels `self-hosted`, `linux`,
+  the architecture and `LABELS`, so existing `runs-on` lines keep matching.
+  Several hosts need no coordination: GitHub assigns each job to exactly one
+  set, and a job a host cannot start returns after 5 minutes and goes to
+  another host. This answers the multi-host question without a shared store.
+- **Capacity instead of acquisition.** Every session of a host reports the
+  host's free slots. When a slot is taken, the host sends the new value at
+  once by ending its running polls early (to be verified: whether closing a
+  held poll is safe) instead of waiting up to ~50 s.
+- **Over-assignment is bounded, not prevented.** N repo sessions can together
+  get more jobs than there are free slots. The host keeps those assigned jobs
+  in one queue ordered by `queueTime` and starts a JIT runner for the oldest
+  when a slot frees up; jobs it cannot start within 5 minutes go back to
+  GitHub and possibly to another host. Oldest-first across repos holds for
+  jobs already assigned to the host.
+- **Credentials.** One admin token per repo, renewed every ~15 minutes through
+  a new registration token; the PAT or App token needs Administration write
+  only.
+- **Unchanged:** discovery, the slot directories, `run_runner()`'s runner copy
+  and cleanup, and polling as the default mode. `MODE=scaleset` stays opt-in
+  and experimental while `actions/scaleset` is in public preview.
+
+Before any code in `solo_runner/`: approval of this revised design.
 
 ## Prior art
 
