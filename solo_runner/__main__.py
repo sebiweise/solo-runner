@@ -15,7 +15,12 @@ def main() -> int:
         print(f"solo-runner: {err}", file=sys.stderr)
         return 2
     setup(config.log_format)
-    dispatcher = Dispatcher(config)
+    if config.mode == "scaleset":
+        from .scaleset_mode import ScaleSetDispatcher
+
+        dispatcher = ScaleSetDispatcher(config)
+    else:
+        dispatcher = Dispatcher(config)
     if config.metrics_port:
         try:
             serve(dispatcher.metrics, config.metrics_addr, config.metrics_port)

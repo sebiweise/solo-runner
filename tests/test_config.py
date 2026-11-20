@@ -47,6 +47,7 @@ def test_token_from_file(tmp_path):
         ({"GITHUB_TOKEN": "a", "ALLOW_PUBLIC_REPOS": "maybe"}, "true or false"),
         ({"GITHUB_TOKEN": "a", "LOG_FORMAT": "xml"}, "text or json"),
         ({"GITHUB_TOKEN": "a", "RUNNER_TRACE": "loud"}, "RUNNER_TRACE must be true or false"),
+        ({"GITHUB_TOKEN": "a", "MODE": "webhook"}, "MODE must be poll or scaleset"),
     ],
 )
 def test_invalid(env, message):
@@ -57,6 +58,11 @@ def test_invalid(env, message):
 def test_default_label_not_duplicated():
     config = load({"GITHUB_TOKEN": "a", "LABELS": "self-hosted,homelab"})
     assert config.runner_labels.count("self-hosted") == 1
+
+
+def test_mode():
+    assert load({"GITHUB_TOKEN": "t"}).mode == "poll"
+    assert load({"GITHUB_TOKEN": "t", "MODE": " ScaleSet "}).mode == "scaleset"
 
 
 def test_metrics_port():

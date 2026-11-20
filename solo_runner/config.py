@@ -63,6 +63,7 @@ class Config:
     arch: str = field(default_factory=_arch_label)
     config_file: str = ""
     repo_settings: list = field(default_factory=list)  # RepoSettings, first match wins
+    mode: str = "poll"  # poll (REST API) or scaleset (experimental, runner scale sets)
 
     @property
     def default_labels(self) -> list:
@@ -244,6 +245,9 @@ def load(env=None) -> Config:
     if config.log_format not in ("text", "json"):
         raise ConfigError(f"LOG_FORMAT must be text or json, got {config.log_format!r}")
     config.runner_trace = _bool(env, "RUNNER_TRACE", False)
+    config.mode = env.get("MODE", "").strip().lower() or "poll"
+    if config.mode not in ("poll", "scaleset"):
+        raise ConfigError(f"MODE must be poll or scaleset, got {config.mode!r}")
     config.api_url = env.get("GITHUB_API_URL", config.api_url).rstrip("/")
     config.config_file = env.get("CONFIG_FILE", "").strip()
     if config.config_file:

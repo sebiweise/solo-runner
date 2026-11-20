@@ -57,6 +57,7 @@ The step-by-step flow is in [How it works](#how-it-works).
 - [PAT or GitHub App](#pat-or-github-app)
 - [Jobs that use Docker](#jobs-that-use-docker)
 - [Monitoring](#monitoring)
+- [Several hosts and scale set mode (experimental)](#several-hosts-and-scale-set-mode-experimental)
 - [Bring your own runner image](#bring-your-own-runner-image)
 - [How it works](#how-it-works)
 - [How it compares](#how-it-compares)
@@ -100,6 +101,14 @@ you trust before you start.
   repo names, labels and limits only; never put a token or other secret in
   it. Mount it read-only (`:ro`), so a job cannot change the settings of other
   repos for the next start.
+- **Scale set mode matches labels differently.** With `MODE=scaleset`, GitHub
+  decides which jobs a runner gets, not solo-runner: every job whose labels are
+  all among the runner's labels can land on it, so `runs-on: self-hosted`
+  alone matches even when `LABELS` is set, and so does `runs-on:` with the
+  `RUNNER_NAME_PREFIX` (the scale set's name). If other self-hosted runners
+  serve the same repos, give their jobs a label this host does not have. The
+  dispatcher also holds a short-lived Actions service token per repo (about
+  16 minutes) in memory; like `GITHUB_TOKEN`, it is never passed to runners.
 
 Report vulnerabilities as described in [SECURITY.md](SECURITY.md).
 
@@ -161,6 +170,7 @@ with the `_FILE` suffix (`GITHUB_TOKEN_FILE`, `GITHUB_APP_PRIVATE_KEY_FILE`).
 | `RUNNER_DIR` | `/home/runner` | Where the runner installation lives (for custom images). |
 | `GITHUB_API_URL` | `https://api.github.com` | For GitHub Enterprise Server. |
 | `CONFIG_FILE` | – | Optional YAML file with [settings per repo](#settings-per-repo). |
+| `MODE` | `poll` | `poll`, or `scaleset` for the experimental [scale set mode](#several-hosts-and-scale-set-mode-experimental), which lets several hosts serve the same repos without starting two runners for one job. |
 
 **Rate limit.** Each scan costs about two requests per repo, but unchanged
 answers come back as `304 Not Modified`, which GitHub does not count. Ten repos
@@ -297,6 +307,39 @@ Example alerts: `time() - solo_runner_last_scan_timestamp_seconds > 600`
 (dispatcher stuck or token rejected), `rate(solo_runner_github_errors_total[15m]) > 0`,
 `histogram_quantile(0.9, rate(solo_runner_job_wait_seconds_bucket[1h])) > 1800`
 (jobs wait long: raise `MAX_CONCURRENT`).
+
+## Several hosts and scale set mode (experimental)
+
+In the default mode (`MODE=poll`), every host sees the same queued jobs. Two
+hosts serving the same repos can both start a runner for one job; the second
+one waits `IDLE_TIMEOUT` and is removed. That costs a slot for a few minutes,
+never a job, but it is wasted capacity. With one host, nothing changes.
+
+`MODE=scaleset` uses GitHub's runner scale sets instead, the API behind
+actions-runner-controller:
+
+- Each host keeps one scale set per repo, named after its
+  `RUNNER_NAME_PREFIX`, with the runner labels. **Give every host its own
+  prefix.** If two hosts share one, the one started last takes the scale sets
+  over, and the other logs that its set is used by another host.
+- Instead of polling, the host holds one long poll per repo and tells GitHub
+  how many slots are free. GitHub assigns each job to exactly one scale set,
+  so no two hosts start a runner for the same job. A job a host does not start
+  within 5 minutes is taken back and assigned again, possibly to another host.
+- Every set is told the same free capacity, so a host can be assigned more
+  jobs than it has slots; they wait locally, and a free slot goes to the repo
+  with the oldest waiting job, as in polling mode. A changed capacity reaches
+  GitHub with the next long poll (at most about 50 seconds).
+- On a clean shutdown the sets are deleted, so jobs stay queued until a host
+  is back. After a crash, the next start rebuilds them.
+- Labels are matched by GitHub; see [Security](#security) for how that
+  differs from polling mode.
+
+`max_concurrent` per repo from the [config file](#settings-per-repo) is
+honoured; labels per repo become the labels of that repo's scale set. The mode
+needs the same token permissions as polling mode. It is experimental: the scale
+set API is in preview and may change. What it relies on was tested against
+GitHub; see [the proposal](docs/proposals/runner-scale-sets.md).
 
 ## Bring your own runner image
 

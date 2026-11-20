@@ -28,6 +28,8 @@ solo_runner/            the dispatcher, Python standard library only
                         optional CONFIG_FILE with labels/max_concurrent per repo (RepoSettings)
   miniyaml.py           the small YAML subset CONFIG_FILE accepts (no PyYAML)
   dispatcher.py         job_matches, pick_jobs, filter_repos, slots, main loop (Dispatcher)
+  scaleset.py           client for the runner scale set API (Actions service, preview)
+  scaleset_mode.py      MODE=scaleset: one scale set + listener thread per repo (ScaleSetDispatcher)
   github.py             REST client on urllib: ETag cache, pagination, jobs, JIT config, runners
   appauth.py            GitHub App JWT: own PEM/DER parser + RS256, no `cryptography`
   log.py                text or JSON lines; passthrough() for the runner's own output
