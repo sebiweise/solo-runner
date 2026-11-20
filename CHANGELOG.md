@@ -6,6 +6,8 @@ releases.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-20
+
 ### Added
 
 - The image includes the GitHub CLI (`gh`, 2.105.0), as GitHub-hosted runners
@@ -15,6 +17,10 @@ releases.
 - Experimental `MODE=scaleset`: GitHub assigns jobs to one runner scale set
   per repo and host, so several hosts can serve the same repos without
   starting two runners for one job. Polling stays the default.
+
+### Changed
+
+- `compose.yaml` and the README's custom image example use the `0.3` image.
 
 ## [0.2.2] - 2026-11-19
 
