@@ -1,13 +1,10 @@
 name: Spike scale sets
 
-# Throwaway: runs scripts/spike_scaleset.py against the end-to-end test repo
-# to answer the open questions of docs/proposals/runner-scale-sets.md. Removed
-# again once the answers are in the proposal.
+# Runs scripts/spike_scaleset.py against the end-to-end test repo (about
+# 25 minutes); its results are in docs/proposals/runner-scale-sets.md. By hand
+# only (Actions -> Spike scale sets -> Run workflow), to repeat the spike
+# when GitHub's side changes.
 on:
-  pull_request:
-    paths:
-      - scripts/spike_scaleset.py
-      - .github/workflows/spike-scaleset.yml
   workflow_dispatch:
 
 permissions:

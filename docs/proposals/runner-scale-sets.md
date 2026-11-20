@@ -2,7 +2,9 @@
 
 Status: **proposal, not built.** Written 2026-11-17 against
 [`actions/scaleset`](https://github.com/actions/scaleset) at `716908e`
-(2026-11-07, "Public Preview") and solo-runner 0.1.0.
+(2026-11-07, "Public Preview") and solo-runner 0.1.0. Spike run on
+2026-11-19; see [Spike results](#spike-results-2026-11-19), which change parts
+of the design below (there is no acquire step any more).
 
 ## Summary
 
@@ -156,6 +158,75 @@ Security section gets a paragraph saying so.
 The spike needs the private test repo and token from the end-to-end test
 (backlog item 2) and is about half a day: a throwaway script that creates a
 scale set, opens a session, and logs messages while a few jobs are queued.
+
+## Spike results (2026-11-19)
+
+[`scripts/spike_scaleset.py`](../../scripts/spike_scaleset.py), run by
+`.github/workflows/spike-scaleset.yml` with `E2E_GITHUB_TOKEN` against the
+end-to-end test repo (four runs on PR #22). Each run created a repo scale set,
+opened a session, dispatched `e2e/solo-runner-e2e.yml` (two jobs,
+`runs-on: [self-hosted, <label>]`) and logged every message. The fine-grained
+PAT of the E2E test (Administration + Actions write) was enough for every call.
+
+**Protocol.** Registration token, `POST /actions/runner-registration`, runner
+group `Default` (id 1), scale set create/delete, sessions, long poll (~50 s,
+`202` when empty), message delete and scale set JIT config all worked as in
+`actions/scaleset`, in about 300 lines of standard-library Python. The admin
+token of the Actions service expired after **~16 minutes** (`401`
+"PublicAccess"); it has to be renewed through a new registration token, which
+is what `actions/scaleset` does too.
+
+**Q3, labels: yes, with an extra label.** A scale set labelled only `<name>`
+was never offered a `[self-hosted, <name>]` job (run 1, nothing in 150 s).
+With the labels `<name>` and `self-hosted` (multiple labels work on
+github.com) the jobs arrived within 2 s (run 2). So existing workflows keep
+`runs-on: [self-hosted, solo]` if the scale set carries `self-hosted` plus
+`LABELS`; `linux`/`x64` would have to be added the same way for jobs that ask
+for them.
+
+**Q1, unacquired jobs: moot.** GitHub no longer offers jobs (`JobAvailable`,
+`totalAvailableJobs` stayed 0 throughout); it **assigns** them to the scale set
+(`JobAssigned`, `totalAssignedJobs`) up to the capacity sent in
+`X-ScaleSetMaxCapacity`. No `acquirejobs` call was needed. Capacity 0 held
+both jobs back (run 3); capacity 1 assigned exactly one, the older one
+(run 4); capacity 2 assigned both. In run 3, raising the capacity from 0 to 1
+after 90 s assigned nothing for 13 minutes, and only raising it to 2 got both
+jobs assigned, ~4.5 minutes later. Whether a capacity raise only takes effect
+at GitHub's next assignment round is still unclear; it would delay jobs when a
+slot frees up.
+
+**Q2, assigned but no runner: taken back after 5 minutes, then assigned
+again.** Without a runner, an assignment ended after exactly 300 s as
+`JobCompleted` with result `canceled`, and the job was assigned again within
+a second (new job id, same job; the REST API showed it as `queued` all the
+time). With capacity 1 the second job got the slot after the first was taken
+back. This repeated four times in 15 minutes with no growing delay and no
+failure, and afterwards two JIT runners from the scale set ran both jobs
+successfully in ~25 s (run 4). A "canceled" `JobCompleted` is therefore not
+the end of a job.
+
+**What this means for the design above.**
+
+- There is nothing to acquire, so the global queue cannot pick the oldest job
+  across repos. GitHub assigns per scale set, within each set's capacity. With
+  one session per repo the sum of capacities over-assigns, and a job assigned
+  to a repo whose host has no free slot waits up to 5 minutes before it is
+  taken back. Oldest-first across repos becomes "each repo gets at most
+  `free slots`", unless the capacity per repo is managed actively (for example
+  capacity 0 for all repos but one).
+- Several hosts on the same repos work without any coordination: each host
+  owns its own scale set per repo (unique name, same labels), and GitHub
+  assigns every job to exactly one set. This is what the multi-host question
+  (duplicate runners) needs, and the polling mode cannot give it.
+- Each served repo needs a long-lived session and an admin token renewed every
+  ~15 minutes; tokens and sessions stay per repo.
+
+**Recommendation after the spike.** The mode is feasible on a personal account
+and solves multi-host cleanly, but the global oldest-first limit has to be
+redesigned around assignment instead of acquisition. Next step, if wanted: a
+second, short spike with two scale sets (two repos or two hosts) to see how
+GitHub spreads jobs and whether capacity changes apply at once, then an
+updated design before any code in `solo_runner/`.
 
 ## Prior art
 

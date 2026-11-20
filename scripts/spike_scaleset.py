@@ -1,19 +1,15 @@
-"""Throwaway spike: how do Runner Scale Sets behave for a personal account's repo?
+"""Spike: how do Runner Scale Sets behave for a personal account's repo?
 
-Answers the open questions of docs/proposals/runner-scale-sets.md against
-real GitHub, using the end-to-end test repo and token:
-
-  Q3 labels     Is a job with `runs-on: [self-hosted, <name>]` offered to a
-                repo scale set named <name>?
-  Q1 unacquired If a JobAvailable is acknowledged but not acquired, is it
-                offered again: in the same session, or after a new session?
-  Q2 acquired   If a job is acquired but no runner ever starts, when does
-                GitHub take it back, and what happens next?
-  end to end    A JIT runner from the scale set runs an acquired job.
+Creates a repo scale set (labels: its name plus EXTRA_LABELS, default
+self-hosted) in the end-to-end test repo, dispatches the test workflow and
+logs every message while it changes X-ScaleSetMaxCapacity: capacity 1 from
+the start, capacity 2 without a runner (how assignments are taken back), then
+capacity 2 with JIT runners from the scale set. Results and their meaning:
+docs/proposals/runner-scale-sets.md, "Spike results".
 
 Protocol as in github.com/actions/scaleset (client.go, session_client.go).
-Prints one JSON line per event; the summary at the end is what goes into the
-proposal. Standard library only, like the dispatcher. Not part of the image.
+Prints one JSON line per event and a summary at the end. Standard library
+only, like the dispatcher. Not part of the image.
 
 Environment: GH_TOKEN (fine-grained PAT, Administration + Actions write on the
 repo), E2E_REPO (owner/name), NAME (scale set name, unique per run),
