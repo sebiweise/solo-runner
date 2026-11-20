@@ -19,7 +19,10 @@ DEFINITIONS = {
     "solo_runner_slots_busy": ("gauge", "Runners that exist now (starting, waiting for a job or running one)."),
     "solo_runner_slots_free": ("gauge", "Slots a new runner could use now."),
     "solo_runner_repos_served": ("gauge", "Repos the dispatcher polls."),
-    "solo_runner_jobs_queued": ("gauge", "Matching queued jobs seen in the last scan, per repo."),
+    "solo_runner_jobs_queued": (
+        "gauge",
+        "Matching queued jobs seen in the last scan (scale set mode: assigned jobs without a runner), per repo.",
+    ),
     "solo_runner_last_scan_timestamp_seconds": ("gauge", "Unix time of the last scan in which every repo answered."),
     "solo_runner_runners_started_total": ("counter", "Just-in-time runners registered, per repo."),
     "solo_runner_jobs_started_total": ("counter", "Jobs a runner picked up, per repo."),

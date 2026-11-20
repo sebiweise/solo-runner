@@ -349,6 +349,13 @@ class Dispatcher:
                 self._slots.pop(slot.index, None)
             self._wake.set()
 
+    def register_runner(self, slot: Slot, work: str) -> dict:
+        """A JIT config for slot: {"runner": {"id": ...}, "encoded_jit_config": ...}."""
+        return self.github.jit_config(slot.repo, slot.name, self.config.runner_labels_for(slot.repo), work)
+
+    def unregister_runner(self, slot: Slot) -> None:
+        self.github.delete_runner(slot.repo, slot.runner_id)
+
     def run_runner(self, slot: Slot) -> None:
         config = self.config
         work = os.path.join(config.work_dir, f"slot-{slot.index}")
@@ -361,7 +368,7 @@ class Dispatcher:
             slot.name = f"{config.name_prefix}-{short}-{int(time.time())}-{slot.index}"[:64]
             # Same path inside and outside the container (see README): the host's
             # Docker daemon resolves a job's `docker run -v "$PWD:..."` there.
-            jit = self.github.jit_config(slot.repo, slot.name, config.runner_labels_for(slot.repo), work)
+            jit = self.register_runner(slot, work)
             slot.runner_id = jit["runner"]["id"]
             self.metrics.inc("solo_runner_runners_started_total", repo=slot.repo)
             log(f"{slot.repo}: started runner {slot.name}", slot=slot.index)
@@ -411,7 +418,7 @@ class Dispatcher:
             # job would stay listed as offline until GitHub removes it a day later.
             if slot.runner_id is not None:
                 try:
-                    self.github.delete_runner(slot.repo, slot.runner_id)
+                    self.unregister_runner(slot)
                 except (GitHubError, OSError) as err:
                     log(f"{slot.repo}: could not remove runner {slot.name}: {err}", slot=slot.index)
             clear_dir(work)

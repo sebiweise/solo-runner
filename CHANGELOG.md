@@ -12,6 +12,9 @@ releases.
   do. Workflows that call `gh release`, `gh api` or `gh run` failed with
   "gh: command not found". `update-tools.yml` (formerly `update-compose.yml`)
   opens a pull request for each new `gh` release, like for the compose plugin.
+- Experimental `MODE=scaleset`: GitHub assigns jobs to one runner scale set
+  per repo and host, so several hosts can serve the same repos without
+  starting two runners for one job. Polling stays the default.
 
 ## [0.2.2] - 2026-11-19
 

@@ -57,13 +57,19 @@ jobs:
     if: needs.check.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # scaleset: experimental mode; GitHub assigns the jobs to a scale set.
+        mode: [poll, scaleset]
     env:
       GH_TOKEN: ${{ secrets.E2E_GITHUB_TOKEN }}
       IMAGE: ${{ inputs.image || 'solo-runner:e2e' }}
       # Label and runner name prefix unique to this attempt: only this
       # container takes the jobs, and only its runners are checked/removed.
-      LABEL: e2e-${{ github.run_id }}-${{ github.run_attempt }}
-      CONTAINER: solo-runner-e2e
+      LABEL: e2e-${{ matrix.mode }}-${{ github.run_id }}-${{ github.run_attempt }}
+      CONTAINER: solo-runner-e2e-${{ matrix.mode }}
+      MODE: ${{ matrix.mode }}
     steps:
       - uses: actions/checkout@v7
         if: inputs.image == ''
@@ -84,6 +90,7 @@ jobs:
           # The token is passed by name, so it is not on the command line.
           docker run -d --name "$CONTAINER" \
             -e GITHUB_TOKEN \
+            -e MODE \
             -e REPOS="$E2E_REPO" \
             -e LABELS="$LABEL" \
             -e RUNNER_NAME_PREFIX="$LABEL" \
@@ -104,7 +111,7 @@ jobs:
       - name: Dispatch the test workflow
         id: dispatch
         run: |
-          nonce="$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          nonce="$MODE-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           ref=$(gh api "repos/$E2E_REPO" --jq .default_branch)
           jq -n --arg ref "$ref" --arg label "$LABEL" --arg nonce "$nonce" \
             '{ref: $ref, inputs: {label: $label, nonce: $nonce}, return_run_details: true}' \
@@ -178,6 +185,10 @@ jobs:
           docker stop -t 30 "$CONTAINER"
           docker logs "$CONTAINER" 2>&1 | tail -1 | grep -q "stopped" || fail "no clean shutdown"
           [ "$(docker inspect -f '{{.State.ExitCode}}' "$CONTAINER")" -eq 0 ] || fail "exit code not 0"
+          # Scale set mode deletes its scale set on shutdown.
+          if docker logs "$CONTAINER" 2>&1 | grep -q "could not close scale set"; then
+            fail "scale set not deleted on shutdown"
+          fi
 
       - name: solo-runner log
         if: always()
