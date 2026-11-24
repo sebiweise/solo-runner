@@ -56,8 +56,9 @@ compose.yaml, .env.example   what users copy to their host
   all repos in parallel (`ThreadPoolExecutor`, max 16), pick the oldest
   matching jobs with `pick_jobs()` and `start()` a slot per job. The heartbeat
   is sent only when every repo answered.
-- A queued job can sit in a run that is already `in_progress` (`needs:`), so
-  `queued_jobs()` searches runs in both states.
+- A queued job can sit in a run that is already `in_progress` (`needs:`), or
+  one GitHub reports as `pending` or `waiting` (concurrency, environments), so
+  `queued_jobs()` searches runs in all four states (`RUN_STATES`).
 - `pick_jobs()` skips as many jobs per repo as that repo has started but idle
   runners, since those will take one of them.
 - Each slot runs in its own thread: empty `WORK_DIR/slot-N`, a hard-linked copy

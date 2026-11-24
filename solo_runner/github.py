@@ -14,6 +14,10 @@ from .appauth import app_jwt
 USER_AGENT = f"solo-runner/{os.environ.get('SOLO_RUNNER_VERSION') or __version__}"
 
 
+# Run states whose runs can hold a job that is queued for a runner.
+RUN_STATES = ("queued", "in_progress", "waiting", "pending")
+
+
 class GitHubError(RuntimeError):
     def __init__(self, message: str, status: int = 0):
         super().__init__(message)
@@ -154,12 +158,20 @@ class GitHub:
 
     def queued_jobs(self, repo: str) -> list:
         """Queued jobs of repo as dicts with id, name, labels, created_at, run_name."""
-        jobs = []
+        jobs, seen_runs = [], set()
         # A job can be queued in a run that is already "in_progress" (it
-        # `needs:` an earlier job), so both run states are searched.
-        for status in ("queued", "in_progress"):
-            runs = self.request("GET", f"/repos/{repo}/actions/runs?status={status}&per_page=30", cache=True)
+        # `needs:` an earlier job). GitHub also reports runs as "pending" or
+        # "waiting" (concurrency groups, environments with required
+        # reviewers) while one of their jobs already shows "Waiting for a
+        # runner to pick up this job" and has the status "queued". So all of
+        # these run states are searched.
+        for status in RUN_STATES:
+            runs = self.request("GET", f"/repos/{repo}/actions/runs?status={status}&per_page=100", cache=True)
             for run in runs.get("workflow_runs", []):
+                # A run can change state between the requests and show up twice.
+                if run["id"] in seen_runs:
+                    continue
+                seen_runs.add(run["id"])
                 listing = self.request(
                     "GET", f"/repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100", cache=True
                 )

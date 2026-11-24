@@ -41,6 +41,8 @@ def test_queued_jobs_include_jobs_of_in_progress_runs():
     responses = {
         "status=queued": {"workflow_runs": []},
         "status=in_progress": {"workflow_runs": [{"id": 7, "name": "CI"}]},
+        "status=waiting": {"workflow_runs": []},
+        "status=pending": {"workflow_runs": []},
         "/runs/7/jobs": {
             "jobs": [
                 {"id": 1, "name": "lint", "status": "completed", "labels": ["self-hosted"]},
@@ -71,3 +73,33 @@ def test_queued_jobs_include_jobs_of_in_progress_runs():
             "run_name": "CI",
         }
     ]
+
+
+def test_queued_jobs_include_jobs_of_pending_runs_once():
+    # GitHub reported a run as "pending" while one of its jobs was queued for
+    # a runner; a run that changes state between the requests is listed twice.
+    run = {"id": 9, "name": "Release"}
+    responses = {
+        "status=queued": {"workflow_runs": [run]},
+        "status=in_progress": {"workflow_runs": []},
+        "status=waiting": {"workflow_runs": []},
+        "status=pending": {"workflow_runs": [run]},
+        "/runs/9/jobs": {
+            "jobs": [
+                {"id": 3, "name": "submit", "status": "waiting", "labels": ["homelab"]},
+                {"id": 4, "name": "check", "status": "queued", "labels": ["homelab"], "created_at": "t"},
+            ]
+        },
+    }
+    urls = []
+
+    def opener(req, timeout):
+        urls.append(req.full_url)
+        for key, body in responses.items():
+            if key in req.full_url:
+                return FakeResponse(body)
+        raise AssertionError(req.full_url)
+
+    jobs = GitHub(TokenAuth("t"), opener=opener).queued_jobs("me/a")
+    assert [job["id"] for job in jobs] == [4]
+    assert sum("/runs/9/jobs" in url for url in urls) == 1
