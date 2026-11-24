@@ -6,6 +6,13 @@ releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- Queued jobs in a workflow run that GitHub reports as `pending` or `waiting`
+  (concurrency groups, environments) are found and run. Before, such a job
+  showed "Waiting for a runner to pick up this job" forever, with nothing in
+  solo-runner's logs. Up to 100 instead of 30 runs per state are searched.
+
 ## [0.3.1] - 2026-11-24
 
 ### Changed
