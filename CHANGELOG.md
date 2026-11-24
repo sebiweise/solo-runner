@@ -6,6 +6,13 @@ releases.
 
 ## [Unreleased]
 
+### Changed
+
+- A queued job that asks for some of the runner's labels but does not match
+  (a label this host lacks, or one of `LABELS` missing in `runs-on`) is now
+  logged once as `queued job ... not taken`. Before, it stayed "Queued" in
+  GitHub with nothing in the logs.
+
 ## [0.3.0] - 2026-11-20
 
 ### Added

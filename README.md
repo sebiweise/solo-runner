@@ -395,7 +395,8 @@ sequenceDiagram
 ## Troubleshooting
 
 - **Job stays "Queued"**: the job's `runs-on` asks for a label solo-runner does
-  not have, or misses one of `LABELS`; the
+  not have, or misses one of `LABELS` (logged once as `queued job ... not
+  taken`); the
   repo is public, archived, excluded or not visible to the token (see the
   `serving N repos` line); all slots are busy; or the repo is at its
   `max_concurrent` from the config file, or has its own `labels` there.

@@ -47,6 +47,24 @@ def job_matches(job_labels, config: Config, repo: str = None) -> bool:
     return bool(asked) and asked <= ours and wanted <= asked
 
 
+def label_mismatch(job_labels, config: Config, repo: str = None) -> str:
+    """Why a job that looks meant for this host does not match, or "" if it is
+    someone else's job. A job counts as meant for this host when it asks for at
+    least one of the runner's labels (`self-hosted`, `linux`, an extra label):
+    GitHub-hosted jobs (`ubuntu-latest`) share none and are not mentioned."""
+    asked = {label.lower() for label in job_labels}
+    ours = {label.lower() for label in config.runner_labels_for(repo)}
+    wanted = {label.lower() for label in config.labels_for(repo)}
+    if not asked & ours:
+        return ""
+    reasons = []
+    if asked - ours:
+        reasons.append(f"this host lacks {','.join(sorted(asked - ours))}")
+    if wanted - asked:
+        reasons.append(f"the job does not ask for {','.join(sorted(wanted - asked))} (LABELS or the config file)")
+    return "; ".join(reasons)
+
+
 def pick_jobs(jobs, idle_per_repo: dict, free: int, room_per_repo: dict = None) -> list:
     """The oldest jobs to start runners for, at most `free`.
 
@@ -204,6 +222,7 @@ class Dispatcher:
         self._wake = threading.Event()
         self._last_beat = 0.0
         self._queued = {}  # repo -> matching queued jobs in the last scan
+        self._mismatch_logged = set()  # ids of queued jobs already logged as not matching
 
     # --- repos ------------------------------------------------------------
 
@@ -265,11 +284,7 @@ class Dispatcher:
 
     def _scan(self, repo):
         try:
-            return [
-                dict(job, repo=repo)
-                for job in self.github.queued_jobs(repo)
-                if job_matches(job["labels"], self.config, repo)
-            ]
+            return [dict(job, repo=repo) for job in self.github.queued_jobs(repo)]
         except (GitHubError, OSError, KeyError, ValueError) as err:
             return err
 
@@ -278,13 +293,19 @@ class Dispatcher:
         jobs, ok = [], True
         if not self.repos:
             return jobs, ok
+        mismatched = []
         with ThreadPoolExecutor(max_workers=min(len(self.repos), 16)) as pool:
             for repo, found in zip(self.repos, pool.map(self._scan, self.repos), strict=True):
                 if isinstance(found, Exception):
                     log(f"{repo}: {found}")
                     ok = False
-                else:
-                    jobs.extend(found)
+                    continue
+                for job in found:
+                    if job_matches(job["labels"], self.config, repo):
+                        jobs.append(job)
+                    else:
+                        mismatched.append(job)
+        self._log_mismatched(mismatched, complete=ok)
         queued = {}
         for job in jobs:
             queued[job["repo"]] = queued.get(job["repo"], 0) + 1
@@ -292,6 +313,26 @@ class Dispatcher:
         if ok:
             self.metrics.set("solo_runner_last_scan_timestamp_seconds", time.time())
         return jobs, ok
+
+    def _log_mismatched(self, jobs, complete: bool) -> None:
+        # Without this, a job whose runs-on does not fit stays "Queued" in
+        # GitHub while solo-runner logs nothing at all. Each job is named once,
+        # not on every scan.
+        seen = set()
+        for job in jobs:
+            reason = label_mismatch(job["labels"], self.config, job["repo"])
+            if not reason:
+                continue
+            seen.add(job["id"])
+            if job["id"] in self._mismatch_logged:
+                continue
+            log(
+                f"{job['repo']}: queued job '{job['run_name']} / {job['name']}' not taken:"
+                f" it asks for {','.join(job['labels'])}, {reason}"
+            )
+        # Forget jobs that are no longer queued; keep all after a partial scan,
+        # so a repo that did not answer is not logged again.
+        self._mismatch_logged = seen if complete else self._mismatch_logged | seen
 
     # --- slots ------------------------------------------------------------
 
