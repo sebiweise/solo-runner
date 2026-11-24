@@ -6,6 +6,8 @@ releases.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-24
+
 ### Changed
 
 - A queued job that asks for some of the runner's labels but does not match
