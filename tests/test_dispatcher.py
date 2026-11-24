@@ -8,6 +8,7 @@ from solo_runner.dispatcher import (
     Dispatcher,
     filter_repos,
     job_matches,
+    label_mismatch,
     pick_jobs,
     prepare_runner_copy,
     runner_env,
@@ -260,6 +261,44 @@ def test_public_repos_are_logged_only_when_the_set_changes(tmp_path, monkeypatch
     del found[1:]
     dispatcher.refresh_repos(force=True)
     assert [line for line in lines if "public" in line] == ["skipped 0 public repos"]
+
+
+def test_label_mismatch_reasons(tmp_path):
+    config = make_config(tmp_path, LABELS="solo")
+    # GitHub-hosted jobs share no label with this host: not ours to mention.
+    assert label_mismatch(["ubuntu-latest"], config) == ""
+    assert label_mismatch(["self-hosted", "solo"], config) == ""
+    assert label_mismatch(["self-hosted", "gpu", "solo"], config) == "this host lacks gpu"
+    assert "does not ask for solo" in label_mismatch(["self-hosted"], config)
+
+
+def test_mismatched_jobs_are_logged_once(tmp_path, monkeypatch):
+    lines = []
+    monkeypatch.setattr("solo_runner.dispatcher.log", lambda message, **fields: lines.append(message))
+    queued = [
+        {"id": 1, "name": "build", "labels": ["self-hosted", "gpu"], "created_at": "t", "run_name": "CI"},
+        {"id": 2, "name": "lint", "labels": ["ubuntu-latest"], "created_at": "t", "run_name": "CI"},
+    ]
+    gh = FakeGitHub({"me/a": queued})
+    dispatcher = Dispatcher(make_config(tmp_path), github=gh)
+    dispatcher.refresh_repos(force=True)
+
+    jobs, ok = dispatcher.scan()
+    assert ok and jobs == []
+    assert [line for line in lines if "not taken" in line] == [
+        "me/a: queued job 'CI / build' not taken: it asks for self-hosted,gpu, this host lacks gpu"
+    ]
+
+    lines.clear()
+    dispatcher.scan()
+    assert not any("not taken" in line for line in lines)
+
+    # Once it is gone and queued again (re-run: same id), it is named again.
+    gh.jobs["me/a"] = []
+    dispatcher.scan()
+    gh.jobs["me/a"] = queued
+    dispatcher.scan()
+    assert len([line for line in lines if "not taken" in line]) == 1
 
 
 def test_metrics_follow_a_job(tmp_path):
