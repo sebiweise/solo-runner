@@ -6,6 +6,8 @@ releases.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-24
+
 ### Fixed
 
 - Queued jobs in a workflow run that GitHub reports as `pending` or `waiting`
