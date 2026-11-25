@@ -14,7 +14,7 @@ repos. It polls the GitHub REST API (with ETags) for queued jobs, registers a
 JIT runner for the repo with the oldest matching job, runs it in a free slot
 and cleans up. No webhooks, no inbound port.
 
-Released: v0.3.2 (`ghcr.io/sebiweise/solo-runner:0.3.2`). An end-to-end test
+Released: v0.3.3 (`ghcr.io/sebiweise/solo-runner:0.3.3`). An end-to-end test
 (`.github/workflows/e2e.yml`) runs real jobs against a private test repo when
 the `E2E_GITHUB_TOKEN` secret is set; see CONTRIBUTING.md.
 
