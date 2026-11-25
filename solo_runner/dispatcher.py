@@ -17,6 +17,7 @@ import calendar
 import contextlib
 import fnmatch
 import os
+import queue
 import shutil
 import signal
 import subprocess
@@ -24,7 +25,6 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
 
 from .config import Config
 from .github import AppAuth, GitHub, GitHubError, TokenAuth
@@ -32,6 +32,11 @@ from .log import log, passthrough
 from .metrics import Metrics
 
 HEARTBEAT_EVERY = 60
+# A scan that takes longer counts the repos that have not answered as failed.
+SCAN_TIMEOUT = 120
+# The main loop must finish a round at least this often (or 10 POLL_INTERVALs,
+# if longer); otherwise the watchdog ends the process so Docker restarts it.
+STALL_AFTER = 600
 _RUNNER_STATE = {".runner", ".credentials", ".credentials_rsaparams"}
 
 
@@ -113,6 +118,13 @@ def filter_repos(repos, config: Config, public=None) -> list:
             continue
         result.append(name)
     return sorted(set(result))
+
+
+def describe(err: BaseException) -> str:
+    """An error for the log; the type is named when the message alone says little."""
+    if isinstance(err, (GitHubError, OSError)):
+        return str(err) or type(err).__name__
+    return f"{type(err).__name__}: {err}"
 
 
 def queued_seconds(created_at: str, now: float) -> float | None:
@@ -223,6 +235,11 @@ class Dispatcher:
         self._last_beat = 0.0
         self._queued = {}  # repo -> matching queued jobs in the last scan
         self._mismatch_logged = set()  # ids of queued jobs already logged as not matching
+        self.scan_timeout = SCAN_TIMEOUT
+        self.stall_after = max(STALL_AFTER, 10 * config.poll_interval)
+        self._last_round = time.monotonic()  # end of the main loop's last round
+        self._exit = os._exit  # replaced in tests
+        self._stall_logged = False
 
     # --- repos ------------------------------------------------------------
 
@@ -285,8 +302,39 @@ class Dispatcher:
     def _scan(self, repo):
         try:
             return [dict(job, repo=repo) for job in self.github.queued_jobs(repo)]
-        except (GitHubError, OSError, KeyError, ValueError) as err:
+        except Exception as err:  # noqa: BLE001 - one odd answer must not end the scan of all repos
             return err
+
+    def _scan_all(self, repos) -> dict:
+        """repo -> jobs or exception, for the repos that answered within scan_timeout.
+
+        Daemon threads, not `with ThreadPoolExecutor`: that waits for every
+        worker, so a single request that never returns (urllib has no timeout
+        for the DNS lookup, and a server can trickle bytes past the read
+        timeout) stopped the whole dispatcher, silently, for good.
+        """
+        todo = queue.SimpleQueue()
+        for repo in repos:
+            todo.put(repo)
+        results, lock, done = {}, threading.Lock(), threading.Event()
+
+        def work():
+            while True:
+                try:
+                    repo = todo.get_nowait()
+                except queue.Empty:
+                    return
+                found = self._scan(repo)
+                with lock:
+                    results[repo] = found
+                    if len(results) == len(repos):
+                        done.set()
+
+        for _ in range(min(len(repos), 16)):
+            threading.Thread(target=work, name="scan", daemon=True).start()
+        done.wait(self.scan_timeout)
+        with lock:
+            return dict(results)
 
     def scan(self):
         """(matching queued jobs of all repos, True if every repo answered)."""
@@ -294,17 +342,22 @@ class Dispatcher:
         if not self.repos:
             return jobs, ok
         mismatched = []
-        with ThreadPoolExecutor(max_workers=min(len(self.repos), 16)) as pool:
-            for repo, found in zip(self.repos, pool.map(self._scan, self.repos), strict=True):
-                if isinstance(found, Exception):
-                    log(f"{repo}: {found}")
-                    ok = False
-                    continue
-                for job in found:
-                    if job_matches(job["labels"], self.config, repo):
-                        jobs.append(job)
-                    else:
-                        mismatched.append(job)
+        results = self._scan_all(self.repos)
+        for repo in self.repos:
+            found = results.get(repo)
+            if found is None:
+                log(f"{repo}: no answer within {self.scan_timeout}s")
+                ok = False
+                continue
+            if isinstance(found, Exception):
+                log(f"{repo}: {describe(found)}")
+                ok = False
+                continue
+            for job in found:
+                if job_matches(job["labels"], self.config, repo):
+                    jobs.append(job)
+                else:
+                    mismatched.append(job)
         self._log_mismatched(mismatched, complete=ok)
         queued = {}
         for job in jobs:
@@ -493,8 +546,8 @@ class Dispatcher:
                     if runner.get("name", "").startswith(prefix) and runner.get("status") == "offline":
                         self.github.delete_runner(repo, runner["id"])
                         log(f"{repo}: removed stale runner {runner['name']}")
-            except GitHubError as err:
-                log(f"{repo}: could not list runners: {err}")
+            except (GitHubError, OSError) as err:
+                log(f"{repo}: could not list runners: {describe(err)}")
 
     # --- main loop --------------------------------------------------------
 
@@ -508,6 +561,31 @@ class Dispatcher:
         for slot in slots:
             if slot.process is not None and slot.process.poll() is None:
                 slot.process.terminate()
+
+    # --- watchdog ---------------------------------------------------------
+
+    def check_stall(self) -> bool:
+        """True (and the process ends) if the main loop has hung and no runner is busy."""
+        stalled = time.monotonic() - self._last_round
+        if stalled < self.stall_after or self._stopping.is_set():
+            self._stall_logged = False
+            return False
+        busy = self.active()
+        if busy:
+            # Running jobs do not need the main loop; let them finish first.
+            if not self._stall_logged:
+                log(f"main loop has not finished a round for {int(stalled)}s; restarting once {busy} runners are done")
+                self._stall_logged = True
+            return False
+        log(f"main loop has not finished a round for {int(stalled)}s; exiting so the container restarts")
+        self._exit(1)
+        return True
+
+    def _watchdog(self) -> None:
+        # Last line of defence against a hang nobody foresaw: compose.yaml's
+        # `restart: unless-stopped` brings the container back.
+        while not self._stopping.wait(30):
+            self.check_stall()
 
     def tick(self) -> None:
         """One round: start runners for the oldest matching jobs while slots are free."""
@@ -546,15 +624,21 @@ class Dispatcher:
             try:
                 self.refresh_repos(force=True)
                 break
-            except (GitHubError, OSError, KeyError, ValueError) as err:
-                log(f"cannot list repos: {err}; retrying in {cfg.poll_interval}s")
-                self._stopping.wait(cfg.poll_interval)
-        self.remove_stale_runners()
+            except Exception as err:  # noqa: BLE001 - an odd answer must not end the dispatcher
+                log(f"cannot list repos: {describe(err)}; retrying in {cfg.poll_interval}s")
+            self._last_round = time.monotonic()
+            self._stopping.wait(cfg.poll_interval)
+        threading.Thread(target=self._watchdog, name="watchdog", daemon=True).start()
+        try:
+            self.remove_stale_runners()
+        except Exception as err:  # noqa: BLE001 - only housekeeping
+            log(f"could not remove stale runners: {describe(err)}")
         while not self._stopping.is_set():
             try:
                 self.tick()
-            except (GitHubError, OSError, KeyError, ValueError) as err:
-                log(f"error: {err}")
+            except Exception as err:  # noqa: BLE001 - the loop must survive any single round
+                log(f"error: {describe(err)}")
+            self._last_round = time.monotonic()
             self._wake.wait(cfg.poll_interval)
             self._wake.clear()
         deadline = time.monotonic() + 30

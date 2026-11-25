@@ -282,6 +282,10 @@ Disk fills up with images. A daily cron job helps:
   Uptime Kuma push monitor, ...) with a 5-minute period and set
   `HEARTBEAT_URL`. It goes quiet when the container is down or hung, or when
   GitHub rejects the token.
+- **Watchdog**: if the main loop has not finished a round for 10 minutes (or
+  10 `POLL_INTERVAL`s), solo-runner waits for running jobs and then exits with
+  code 1. Keep `restart: unless-stopped` (as in `compose.yaml`) so Docker
+  starts it again.
 - **Prometheus**: set `METRICS_PORT=9464`, publish the port (see the comment
   in `compose.yaml`) and scrape `http://<host>:9464/metrics`. Read the
   [Security](#security) note first.

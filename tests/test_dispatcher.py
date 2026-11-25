@@ -386,3 +386,92 @@ def test_runner_trace_is_off_unless_asked_for():
     assert base["ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT"] == "1"  # not modified
     loud = runner_env(load({"GITHUB_TOKEN": "a", "RUNNER_TRACE": "true"}), {})
     assert loud["ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT"] == "1"
+
+
+def test_a_repo_that_never_answers_does_not_stop_the_scan(tmp_path):
+    # A request that hangs (DNS lookup, trickling server) used to block the
+    # ThreadPoolExecutor and with it the whole main loop, for good.
+    config = make_config(tmp_path)
+    release = threading.Event()
+
+    class HangingGitHub(FakeGitHub):
+        def queued_jobs(self, repo):
+            if repo == "me/hangs":
+                release.wait(10)
+            return super().queued_jobs(repo)
+
+    gh = HangingGitHub({"me/hangs": [], "me/ok": [queued("me/ok", 1)]})
+    dispatcher = Dispatcher(config, github=gh)
+    dispatcher.scan_timeout = 0.3
+    dispatcher.refresh_repos(force=True)
+    started = time.monotonic()
+    try:
+        jobs, ok = dispatcher.scan()
+    finally:
+        release.set()
+    assert time.monotonic() - started < 5
+    assert not ok
+    assert [j["id"] for j in jobs] == [1]
+
+
+def test_an_unexpected_error_in_one_repo_is_only_logged(tmp_path, monkeypatch):
+    config = make_config(tmp_path)
+    lines = []
+    monkeypatch.setattr("solo_runner.dispatcher.log", lambda message, **_: lines.append(message))
+
+    class OddGitHub(FakeGitHub):
+        def queued_jobs(self, repo):
+            if repo == "me/odd":
+                raise AttributeError("'NoneType' object has no attribute 'get'")
+            return super().queued_jobs(repo)
+
+    gh = OddGitHub({"me/odd": [], "me/ok": [queued("me/ok", 1)]})
+    dispatcher = Dispatcher(config, github=gh)
+    dispatcher.refresh_repos(force=True)
+    jobs, ok = dispatcher.scan()
+    assert not ok and [j["id"] for j in jobs] == [1]
+    assert any("me/odd: AttributeError:" in line for line in lines)
+
+
+def test_main_loop_survives_unexpected_errors(tmp_path, monkeypatch):
+    config = make_config(tmp_path)
+    dispatcher = Dispatcher(config, github=FakeGitHub({"me/a": []}))
+    monkeypatch.setattr("solo_runner.dispatcher.signal.signal", lambda *_: None)
+    rounds = []
+
+    def tick():
+        rounds.append(1)
+        if len(rounds) >= 2:
+            dispatcher.stop()
+        dispatcher._wake.set()  # next round at once, not after POLL_INTERVAL
+        raise TypeError("boom")
+
+    dispatcher.tick = tick
+    dispatcher._wake.set()
+    thread = threading.Thread(target=dispatcher.run, daemon=True)
+    thread.start()
+    thread.join(10)
+    assert not thread.is_alive() and len(rounds) >= 2
+
+
+def test_watchdog_exits_when_the_main_loop_hangs_and_no_runner_is_busy(tmp_path):
+    config = make_config(tmp_path)
+    dispatcher = Dispatcher(config, github=FakeGitHub())
+    codes = []
+    dispatcher._exit = codes.append
+    assert not dispatcher.check_stall()
+    dispatcher._last_round -= dispatcher.stall_after + 1
+    dispatcher._slots[0] = object()  # a runner is busy: wait for it
+    assert not dispatcher.check_stall() and codes == []
+    dispatcher._slots.clear()
+    assert dispatcher.check_stall() and codes == [1]
+
+
+def queued(repo, job_id):
+    return {
+        "id": job_id,
+        "name": "build",
+        "labels": ["self-hosted"],
+        "created_at": "2026-11-17T10:00:00Z",
+        "run_name": "CI",
+    }
