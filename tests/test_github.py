@@ -103,3 +103,20 @@ def test_queued_jobs_include_jobs_of_pending_runs_once():
     jobs = GitHub(TokenAuth("t"), opener=opener).queued_jobs("me/a")
     assert [job["id"] for job in jobs] == [4]
     assert sum("/runs/9/jobs" in url for url in urls) == 1
+
+
+def test_a_broken_answer_becomes_a_github_error():
+    # http.client.IncompleteRead is no OSError and used to escape every handler.
+    import http.client
+
+    import pytest
+
+    from solo_runner.github import GitHubError
+
+    class Broken(FakeResponse):
+        def read(self):
+            raise http.client.IncompleteRead(b"{", 10)
+
+    gh = GitHub(TokenAuth("t"), opener=lambda req, timeout: Broken({}))
+    with pytest.raises(GitHubError, match="IncompleteRead"):
+        gh.request("GET", "/repos/me/a/actions/runs")

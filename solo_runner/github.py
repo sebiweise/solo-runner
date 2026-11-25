@@ -1,6 +1,7 @@
 """The few GitHub REST calls solo-runner needs, on urllib only."""
 
 import calendar
+import http.client
 import json
 import os
 import threading
@@ -108,13 +109,30 @@ class GitHub:
             self._count(err.code, err.headers)
             if err.code == 304 and cached:
                 return cached[1]
-            detail = err.read().decode(errors="replace")[:300]
-            raise GitHubError(f"{method} {path}: HTTP {err.code} {detail}", err.code) from None
-        except OSError:  # URLError, timeouts, resets: no answer at all
-            if self.metrics:
-                self.metrics.inc("solo_runner_github_requests_total", status="network")
-                self.metrics.inc("solo_runner_github_errors_total", status="network")
+            try:
+                detail = err.read().decode(errors="replace")[:300].strip()
+            except (http.client.HTTPException, OSError):
+                detail = ""
+            raise GitHubError(f"{method} {path}: HTTP {err.code} {detail}".rstrip(), err.code) from None
+        except http.client.RemoteDisconnected:
+            # Both an HTTPException and a ConnectionResetError: handled as the
+            # network error it is (below), not as a broken answer.
+            self._count_network()
             raise
+        except http.client.HTTPException as err:
+            # IncompleteRead, BadStatusLine, LineTooLong ... are not OSErrors,
+            # so without this they slip past every `except OSError` in the
+            # callers. GitHub's front end produces them while it returns 5xx.
+            self._count_network()
+            raise GitHubError(f"{method} {path}: broken answer: {type(err).__name__} {err}"[:400]) from None
+        except OSError:  # URLError, timeouts, resets: no answer at all
+            self._count_network()
+            raise
+
+    def _count_network(self) -> None:
+        if self.metrics:
+            self.metrics.inc("solo_runner_github_requests_total", status="network")
+            self.metrics.inc("solo_runner_github_errors_total", status="network")
 
     def _count(self, status, headers) -> None:
         if not self.metrics:

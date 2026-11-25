@@ -6,6 +6,17 @@ releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- The dispatcher no longer stops for good, silently, during GitHub outages
+  (HTTP 5xx, dropped connections). A repo that does not answer within 120 s
+  no longer blocks the scan of all repos, and unexpected errors (a broken
+  HTTP answer such as `IncompleteRead`, an odd response body) are logged
+  instead of ending the main loop. As a last line of defence, a watchdog
+  exits the process when the main loop has not finished a round for 10
+  minutes (or 10 `POLL_INTERVAL`s) and no runner is busy, so Docker's
+  restart policy brings it back.
+
 ## [0.3.2] - 2026-11-24
 
 ### Fixed

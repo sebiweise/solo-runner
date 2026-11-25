@@ -53,9 +53,10 @@ compose.yaml, .env.example   what users copy to their host
   runners with our name prefix, then loop `tick()` every `POLL_INTERVAL`
   (earlier when a slot frees up, via `_wake`).
 - `tick()`: refresh repos every `DISCOVERY_INTERVAL`; if slots are free, scan
-  all repos in parallel (`ThreadPoolExecutor`, max 16), pick the oldest
+  all repos in parallel (daemon threads, max 16, `SCAN_TIMEOUT`), pick the oldest
   matching jobs with `pick_jobs()` and `start()` a slot per job. The heartbeat
-  is sent only when every repo answered.
+  is sent only when every repo answered. A watchdog thread exits the process
+  when the loop has not finished a round for `stall_after` and no slot is busy.
 - A queued job can sit in a run that is already `in_progress` (`needs:`), or
   one GitHub reports as `pending` or `waiting` (concurrency, environments), so
   `queued_jobs()` searches runs in all four states (`RUN_STATES`).
