@@ -6,6 +6,8 @@ releases.
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-11-25
+
 ### Fixed
 
 - The dispatcher no longer stops for good, silently, during GitHub outages
