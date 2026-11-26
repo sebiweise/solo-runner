@@ -6,6 +6,10 @@ releases.
 
 ## [Unreleased]
 
+### Changed
+
+- GitHub CLI 2.106.0 (was 2.105.0).
+
 ## [0.3.3] - 2026-11-25
 
 ### Fixed
