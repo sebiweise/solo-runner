@@ -6,6 +6,10 @@ releases.
 
 ## [Unreleased]
 
+### Changed
+
+- Docker compose plugin 5.8.1 (was 5.8.0).
+
 ## [0.3.3] - 2026-11-25
 
 ### Fixed
